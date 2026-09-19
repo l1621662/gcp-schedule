@@ -1,5 +1,7 @@
 # JUWP Schedule（水贝贝）
 
+水宝宝迎来了她的亲兄弟，水贝贝！水专也有自己的app了！
+
 江西水利电力大学课表 Android App。
 
 **非学校官方应用**，详见文末免责声明。
@@ -31,25 +33,6 @@
 | applicationId | `edu.jxslu.schedule`（debug 变体为 `.debug` 后缀，可与正式包共存） |
 | 应用显示名 | 水贝贝（debug 变体显示「水贝贝 Debug」） |
 
-## 用 Android Studio 打开
-
-1. 安装 [Android Studio](https://developer.android.com/studio) 与 JDK 17
-2. **Open** → 选择本仓库根目录
-3. 等待 Gradle Sync（首次会下载依赖，需能访问 Google / Maven Central / JitPack）
-4. 选择设备或模拟器 → Run `app`
-
-命令行构建（已装 Android SDK 时）：
-
-```powershell
-.\gradlew.bat :app:assembleDebug
-# APK: app\build\outputs\apk\debug\app-debug.apk
-```
-
-若本机 `local.properties` 不存在，请按本机 SDK 路径自建：
-
-```properties
-sdk.dir=C\:\\Users\\<你>\\AppData\\Local\\Android\\Sdk
-```
 
 ## 工程结构
 
@@ -71,19 +54,6 @@ scripts/                    # 教务爬虫（Python，本机调试用，见 scri
 DEVELOPER.md                # 开发者文档：架构 + 爬取实现 + 换校适配指南
 DESIGN.md · PROMPTS.md · AGENTS.md · LICENSE
 ```
-
-## 里程碑（见 DESIGN.md）
-
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| P0 | 规划文档 | 完成 |
-| P1 | 工程脚手架 3 Tab | 完成 |
-| P2 | Room + 今日/周课表 UI | 完成 |
-| P3 | JSON 导入导出 + 学期设置 | 完成 |
-| P4 | 胖乖生活（登录/开水/余额/订单） | 已实现，待真机验证 |
-| P5 | 强智教务 WebView 导入 | 完成 |
-| P5b | 实验课表导入 | 完成 |
-| P6 | 打磨：成绩查询、考试导入、小组件（2×2/4×2/4×4）、上课提醒、日历同步、调课、快捷方式、备份扩容（成绩+学期+作息） | 进行中 |
 
 课表默认为空，不预置样例：在「我的 → 教务导入」登录教务导入学期课表；
 成绩在「我的 → 成绩查询」页内导入；考试安排在教务导入 WebView 内打开考试安排页后一键导入（自动识别页面）。

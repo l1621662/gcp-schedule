@@ -176,7 +176,7 @@ JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件�
 - 与用户中文交流；少形容词，多可验证结论
 - 完成定义：功能可演示（真机/模拟器或写明阻塞）；能跑则跑 `assembleDebug` + `testDebugUnitTest`；未越权改无关模块
 
-## 阶段状态（见 README 里程碑表）
+## 阶段状态（见 DESIGN.md §6 里程碑）
 
 P1 脚手架 · P2 Room+UI · P3 我的页导入导出/学期 · P4 胖乖（已实现，待真机验证）·
 P5 教务 WebView · P5b 实验课表导入 — **已完成**  
