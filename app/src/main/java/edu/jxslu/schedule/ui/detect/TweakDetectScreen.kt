@@ -26,7 +26,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,6 +54,10 @@ import edu.jxslu.schedule.data.jw.JwDetectScheduler
 import edu.jxslu.schedule.data.jw.JwHttpSession
 import edu.jxslu.schedule.data.prefs.DetectDefaults
 import edu.jxslu.schedule.data.prefs.DetectSettings
+import edu.jxslu.schedule.ui.common.AppNoticeVisuals
+import edu.jxslu.schedule.ui.common.AppSnackbarHost
+import edu.jxslu.schedule.ui.common.NoticeFeedback
+import edu.jxslu.schedule.ui.common.NoticeTone
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -96,7 +99,8 @@ fun TweakDetectScreen(
         when (outcome) {
             is JwDetectRunner.Outcome.DiffFound -> onOpenScheduleUpdate()
             else -> scope.launch {
-                snackbar.showSnackbar(detectOutcomeMessage(outcome))
+                val notice = detectOutcomeNotice(outcome)
+                snackbar.showSnackbar(AppNoticeVisuals(notice.text, tone = notice.tone))
             }
         }
     }
@@ -107,7 +111,7 @@ fun TweakDetectScreen(
         // 归零后 TopAppBar 不消费状态栏 → 顶栏顶进状态栏（用户反馈「顶栏偏高」）。
         // 现走 M3 默认：TopAppBar 自行消费顶部，contentWindowInsets 管住手势条，
         // 与 DataSettingsScreen 等其余二级页同口径。
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("调课自动检测") },
@@ -157,10 +161,16 @@ fun TweakDetectScreen(
                                     viewModel.saveAndEnable(
                                         username = username,
                                         password = password,
-                                    ) { ok, message ->
+                                    ) { feedback ->
+                                        // ok 由语气体现：非错误即凭证有效、开关已打开，
+                                        // 输入框随之清空（下次进入不必重打密码）
                                         busy = false
-                                        if (ok) password = ""
-                                        scope.launch { snackbar.showSnackbar(message) }
+                                        if (feedback.tone != NoticeTone.Error) password = ""
+                                        scope.launch {
+                                            snackbar.showSnackbar(
+                                                AppNoticeVisuals(feedback.text, tone = feedback.tone),
+                                            )
+                                        }
                                     }
                                 } else {
                                     confirmDisable = true
@@ -254,7 +264,11 @@ fun TweakDetectScreen(
                         busy = true
                         viewModel.disable {
                             busy = false
-                            scope.launch { snackbar.showSnackbar("已关闭并清除凭证") }
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    AppNoticeVisuals("已关闭并清除凭证", tone = NoticeTone.Info),
+                                )
+                            }
                         }
                     },
                 ) { Text("关闭并清除") }
@@ -334,29 +348,38 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
     val settings: StateFlow<DetectSettings> = prefs.detectSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetectSettings())
 
-    /** 开启流程：验证（空白密码沿用已存）→ 保存凭证 → 开启 → 立即首检（建基线）。 */
-    fun saveAndEnable(username: String, password: String, onResult: (ok: Boolean, message: String) -> Unit) {
+    /**
+     * 开启流程：验证（空白密码沿用已存）→ 保存凭证 → 开启 → 立即首检（建基线）。
+     * [onResult] 的 ok 表示「凭证有效、开关已打开」；首检本身的结果单独带语气
+     * （凭证对了但首检失败时，开关确实是开的，语气该是警告而不是错误）。
+     */
+    fun saveAndEnable(username: String, password: String, onResult: (NoticeFeedback) -> Unit) {
         viewModelScope.launch {
             val user = username.trim()
             val saved = credentialStore.read()
             val pwd = password.ifBlank { saved?.password.orEmpty() }
             if (user.isEmpty() || pwd.isEmpty()) {
-                onResult(false, "请填入学号和密码")
+                onResult(NoticeFeedback("请填入学号和密码", NoticeTone.Warning))
                 return@launch
             }
             // 整链总超时兜底：单请求各有 connect/read 超时，但链路含多步重定向，
             // 最坏情况叠加起来仍可能长时间无结果。宁可明确报「超时」也不要一直转圈。
             val result = withTimeoutOrNull(LOGIN_TOTAL_TIMEOUT_MS) { verifyAndEnable(user, pwd) }
             if (result == null) {
-                onResult(false, "登录超时（${LOGIN_TOTAL_TIMEOUT_MS / 1000} 秒无响应），请检查网络后重试")
+                onResult(
+                    NoticeFeedback(
+                        "登录超时（${LOGIN_TOTAL_TIMEOUT_MS / 1000} 秒无响应），请检查网络后重试",
+                        NoticeTone.Error,
+                    ),
+                )
                 return@launch
             }
-            onResult(result.first, result.second)
+            onResult(result)
         }
     }
 
-    /** 登录校验 + 落库 + 首检；返回 (ok, 面向用户的文案)。 */
-    private suspend fun verifyAndEnable(user: String, pwd: String): Pair<Boolean, String> {
+    /** 登录校验 + 落库 + 首检；返回面向用户的反馈（含语气）。 */
+    private suspend fun verifyAndEnable(user: String, pwd: String): NoticeFeedback {
         val session = JwHttpSession.create()
         try {
             session.login(user, pwd)
@@ -365,10 +388,13 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
             // 被下面 catch (Exception) 吞掉的话超时会误报成「登录异常」。
             throw e
         } catch (e: JwHttpSession.JwHttpException) {
-            return false to (e.message ?: "登录失败，请检查账号密码")
+            return NoticeFeedback(e.message ?: "登录失败，请检查账号密码", NoticeTone.Error)
         } catch (e: Exception) {
             // 兜底：链路里任何未归类异常都不能把开关卡在转圈态
-            return false to "登录异常：${e.javaClass.simpleName} ${e.message.orEmpty()}".trim()
+            return NoticeFeedback(
+                "登录异常：${e.javaClass.simpleName} ${e.message.orEmpty()}".trim(),
+                NoticeTone.Error,
+            )
         } finally {
             // 成功 / 失败 / 取消三条路径都要释放连接池与线程池
             session.shutdown()
@@ -385,7 +411,7 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
         } catch (e: Exception) {
             JwDetectRunner.Outcome.Failed("首次检测异常：${e.message.orEmpty()}")
         }
-        return true to detectOutcomeMessage(outcome)
+        return detectOutcomeNotice(outcome)
     }
 
     fun disable(onDone: () -> Unit) {

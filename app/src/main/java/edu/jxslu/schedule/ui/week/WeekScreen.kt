@@ -95,7 +95,11 @@ import edu.jxslu.schedule.ui.common.SingleSectionCard
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
 import edu.jxslu.schedule.ui.common.readTextFromUri
 import edu.jxslu.schedule.ui.common.resolveImportTarget
-import edu.jxslu.schedule.ui.detect.detectOutcomeMessage
+import edu.jxslu.schedule.ui.common.AppNoticeVisuals
+import edu.jxslu.schedule.ui.common.AppSnackbarHost
+import edu.jxslu.schedule.ui.common.NoticeTone
+import edu.jxslu.schedule.ui.detect.DetectNotice
+import edu.jxslu.schedule.ui.detect.detectOutcomeNotice
 import edu.jxslu.schedule.ui.me.DisplaySettingsContent
 import edu.jxslu.schedule.ui.me.MeViewModel
 import kotlinx.coroutines.delay
@@ -165,6 +169,8 @@ fun WeekScreen(
         .collectAsStateWithLifecycle(initialValue = null)
     // 手动检测进行中态：导入弹层里「检测课表更新」一行的文案与防重复点击
     var detectChecking by remember { mutableStateOf(false) }
+    // 上一次手动检测的结果，内联显示在导入弹层里（弹层窗口盖住 Snackbar，见该处注释）
+    var detectNotice by remember { mutableStateOf<DetectNotice?>(null) }
     var pendingJsonText by remember { mutableStateOf<String?>(null) }
     var jsonPreview by remember { mutableStateOf<ImportPreview.Ok?>(null) }
 
@@ -175,11 +181,15 @@ fun WeekScreen(
         scope.launch {
             val text = readTextFromUri(context, uri)
             if (text.isNullOrBlank()) {
-                snackbar.showSnackbar("读取文件失败")
+                snackbar.showSnackbar(
+                    AppNoticeVisuals("读取文件失败", tone = NoticeTone.Error),
+                )
                 return@launch
             }
             when (val p = repo.previewImport(text)) {
-                is ImportPreview.Error -> snackbar.showSnackbar(p.message)
+                is ImportPreview.Error -> snackbar.showSnackbar(
+                    AppNoticeVisuals(p.message, tone = NoticeTone.Error),
+                )
                 is ImportPreview.Ok -> {
                     pendingJsonText = text
                     jsonPreview = p
@@ -191,9 +201,14 @@ fun WeekScreen(
     suspend fun runJsonImport(text: String, merge: Boolean, targetId: Long) {
         when (val r = repo.importJson(text, merge, targetId)) {
             is ImportResult.Success -> snackbar.showSnackbar(
-                if (merge) "合并完成：新增 ${r.added} / 文件共 ${r.total}" else "已覆盖导入 ${r.total} 门课",
+                AppNoticeVisuals(
+                    if (merge) "合并完成：新增 ${r.added} / 文件共 ${r.total}" else "已覆盖导入 ${r.total} 门课",
+                    tone = NoticeTone.Success,
+                ),
             )
-            is ImportResult.Failure -> snackbar.showSnackbar(r.message)
+            is ImportResult.Failure -> snackbar.showSnackbar(
+                AppNoticeVisuals(r.message, tone = NoticeTone.Error),
+            )
         }
     }
 
@@ -215,7 +230,13 @@ fun WeekScreen(
         if (grants.values.all { it }) {
             pendingCalendarSync = true
         } else {
-            scope.launch { snackbar.showSnackbar("未授予日历权限，无法同步") }
+            // 拒绝也要有反馈：弹层已在发起申请时关闭（见 startCalendarSync），
+            // 这里的提示才看得见——此前拒绝分支不关弹层，Snackbar 被分享弹层整个盖住
+            scope.launch {
+                snackbar.showSnackbar(
+                    AppNoticeVisuals("未授予日历权限，无法同步", tone = NoticeTone.Warning),
+                )
+            }
             pendingCalendarSync = false
         }
     }
@@ -224,7 +245,6 @@ fun WeekScreen(
     LaunchedEffect(pendingCalendarSync) {
         if (pendingCalendarSync) {
             pendingCalendarSync = false
-            shareOpen = false
             viewModel.syncToCalendar(context)
         }
     }
@@ -236,19 +256,21 @@ fun WeekScreen(
         ).filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
+        // 先关分享弹层再进任何一条分支：弹层是独立窗口，盖在它下面的提醒一律不可见
+        //（已授权分支此前就在这里关，拒绝分支漏了 → 提示被盖住）
+        shareOpen = false
         if (needed.isEmpty()) {
-            shareOpen = false
             viewModel.syncToCalendar(context)
         } else {
             calendarPermissionLauncher.launch(needed.toTypedArray())
         }
     }
 
-    // VM 分享结果 → Snackbar（一次性，消费后置空）
+    // VM 分享结果 → 提示卡（一次性，消费后置空）
     val shareMessage by viewModel.shareMessage.collectAsStateWithLifecycle()
     LaunchedEffect(shareMessage) {
         shareMessage?.let {
-            snackbar.showSnackbar(it)
+            snackbar.showSnackbar(AppNoticeVisuals(it.text, tone = it.tone))
             viewModel.consumeShareMessage()
         }
     }
@@ -390,7 +412,7 @@ fun WeekScreen(
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
     ) { padding ->
         BoxWithConstraints(
             Modifier
@@ -590,12 +612,14 @@ fun WeekScreen(
                 importOpen = false
                 onOpenJwImport()
             },
-            // 手动检测（DESIGN §4.17）：无差异 Snackbar、有差异进「更新课表」。
+            // 手动检测（DESIGN §4.17）：检测中行内文案切换；结果**内联在弹层里**
+            //（弹层是独立窗口，Snackbar 会被它盖住），有差异才关弹层进「更新课表」。
             // 弹层保持打开——检测 1–3 秒，关掉会让用户以为已开始跳转；
-            // 结果出来后再关（有差异直接跳页，无差异留在弹层让用户接着选别的）。
+            // 无差异留在弹层让用户接着选别的，结果就显示在刚才点的那一行下面。
             onDetectUpdate = {
                 if (!detectChecking) {
                     detectChecking = true
+                    detectNotice = null
                     scope.launch {
                         // finally 复位：JwDetectRunner.run() 已约定不抛异常，
                         // 这里再兜一层——busy 卡住就是「导入弹层永远显示正在检测…」。
@@ -606,7 +630,7 @@ fun WeekScreen(
                                 importOpen = false
                                 onOpenScheduleUpdate()
                             } else {
-                                snackbar.showSnackbar(detectOutcomeMessage(outcome))
+                                detectNotice = detectOutcomeNotice(outcome)
                             }
                         } finally {
                             detectChecking = false
@@ -615,7 +639,12 @@ fun WeekScreen(
                 }
             },
             detectChecking = detectChecking,
-            onDismiss = { importOpen = false },
+            detectNotice = detectNotice,
+            onDismiss = {
+                importOpen = false
+                // 关掉弹层就把结果丢掉：下次打开不该还挂着上次的旧结论
+                detectNotice = null
+            },
         )
     }
 

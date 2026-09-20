@@ -7,7 +7,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
-import android.widget.Toast
 import edu.jxslu.schedule.ui.widget.TodayWidgetReceiverLarge
 import edu.jxslu.schedule.ui.widget.TodayWidgetReceiverSmall
 import edu.jxslu.schedule.ui.widget.TodayWidgetReceiverWide
@@ -91,11 +90,12 @@ internal object WidgetCapabilities {
         )
     }
 
-    /** 桌面不支持一键添加时的手动指引（Toast 提示 + 不跳转，用户自己长按桌面）。 */
-    fun toastManualAdd(context: Context) {
-        Toast.makeText(context, "当前桌面不支持一键添加，请长按桌面空白处 → 小组件 → 水贝贝", Toast.LENGTH_LONG)
-            .show()
-    }
+    /**
+     * 桌面不支持一键添加时的手动指引文案（不跳转，用户自己长按桌面）。
+     * 只给文案不给弹法：提示统一由页面（WidgetSettingsScreen）的提示宿主展示，
+     * 免得这里再拉一条与页面两套观感的系统 Toast。
+     */
+    const val manualAddHint: String = "当前桌面不支持一键添加，请长按桌面空白处 → 小组件 → 水贝贝"
 
     private fun tryStart(context: Context, intent: Intent): Boolean =
         runCatching {

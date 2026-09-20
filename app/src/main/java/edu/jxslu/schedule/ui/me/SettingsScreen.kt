@@ -14,10 +14,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -28,12 +31,16 @@ import edu.jxslu.schedule.BuildConfig
 import edu.jxslu.schedule.Graph
 import edu.jxslu.schedule.R
 import edu.jxslu.schedule.domain.ThemeMode
+import edu.jxslu.schedule.ui.common.AppNoticeVisuals
+import edu.jxslu.schedule.ui.common.AppSnackbarHost
 import edu.jxslu.schedule.ui.common.EmptyHint
+import edu.jxslu.schedule.ui.common.NoticeTone
 import edu.jxslu.schedule.ui.common.SettingChoiceRow
 import edu.jxslu.schedule.ui.common.SettingItem
 import edu.jxslu.schedule.ui.common.SettingSwitchRow
 import edu.jxslu.schedule.ui.common.SettingsSection
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
+import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.CalendarSetting01
 import me.rerere.hugeicons.stroke.BellRing
@@ -59,15 +66,15 @@ import me.rerere.hugeicons.stroke.Vibrate
 private const val REPO_URL = "https://github.com/Inonvation/JUWP-Schedule"
 
 /**
- * 用系统意图打开链接。失败（无浏览器 / 无 Activity 可处理）时 Toast 提示，
- * 不崩溃也不静默——设置页没有更好的反馈通道。
+ * 用系统意图打开链接。返回 null = 已拉起；非 null = 用户可读错误，由调用方展示
+ * （不在这里弹提示：函数没有 Compose 作用域，而提示要走页面统一的 [AppSnackbarHost]，
+ * 观感与全 App 其余提示一致，也免得在纯函数里塞 Activity 依赖）。
  */
-private fun openUrl(context: Context, url: String) {
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-    } catch (_: ActivityNotFoundException) {
-        android.widget.Toast.makeText(context, "没有可打开链接的应用", android.widget.Toast.LENGTH_SHORT).show()
-    }
+private fun openUrl(context: Context, url: String): String? = try {
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    null
+} catch (_: ActivityNotFoundException) {
+    "没有可打开链接的应用"
 }
 
 /**
@@ -94,6 +101,8 @@ fun SettingsScreen(
     onOpenReminderSettings: () -> Unit = {},
     onOpenShortcuts: () -> Unit = {},
     onOpenWater: () -> Unit = {},
+    /** 我的 → 胖乖生活 → 开水设置（开水卡显示 · 点击方式） */
+    onOpenWaterSettings: () -> Unit = {},
     /** 我的 → 调课自动检测设置（DESIGN §4.17） */
     onOpenTweakDetect: () -> Unit = {},
     /** 胖乖登录态（由外层传入，仅决定开水行文案）；登录/退出在开水页内完成 */
@@ -105,6 +114,15 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = rememberAppHaptics()
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // 设置页唯一的提示出口（目前只有「开源仓库」打不开一种）；走全 App 统一卡片
+    val showNotice: (String) -> Unit = { message ->
+        scope.launch {
+            snackbar.showSnackbar(AppNoticeVisuals(message, tone = NoticeTone.Warning))
+        }
+    }
 
     Scaffold(
         // 根因：外层 JuwApp Scaffold 无 topBar，contentWindowInsets（systemBars）已垫了一个
@@ -119,6 +137,7 @@ fun SettingsScreen(
                 title = { Text(stringResource(R.string.tab_me)) },
             )
         },
+        snackbarHost = { AppSnackbarHost(snackbar) },
     ) { padding ->
         if (state.loading) {
             EmptyHint("加载中…", "读取设置")
@@ -257,17 +276,14 @@ fun SettingsScreen(
                     icon = HugeIcons.Droplet,
                     onClick = onOpenWater,
                 )
-                // 双击确认防误触：默认双击（与今日快捷卡、开水页共用此偏好）
-                SettingChoiceRow(
-                    title = "开水点击方式",
-                    subtitle = "双击确认防误触",
+                // 开水点击方式自 2026-09-19 移入「开水设置」子页：它和「显示开水卡片」
+                // 同属今日页开水卡的行为，原先一个摊在本页、一个藏在课表显示设置里，
+                // 分居两处（见该页注释）
+                SettingItem(
+                    title = "开水设置",
+                    subtitle = "卡片显示 · 点击方式",
                     icon = HugeIcons.GlassWater,
-                    options = listOf("单击", "双击"),
-                    selectedIndex = if (state.displayPrefs.waterRequireDoubleClick) 1 else 0,
-                    onSelect = { index ->
-                        haptics.toggle()
-                        viewModel.setWaterRequireDoubleClick(index == 1)
-                    },
+                    onClick = onOpenWaterSettings,
                 )
             }
 
@@ -284,7 +300,7 @@ fun SettingsScreen(
                     title = "开源仓库",
                     subtitle = "github.com/Inonvation/JUWP-Schedule",
                     icon = HugeIcons.Github,
-                    onClick = { openUrl(context, REPO_URL) },
+                    onClick = { openUrl(context, REPO_URL)?.let(showNotice) },
                 )
             }
         }

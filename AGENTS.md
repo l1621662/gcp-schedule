@@ -76,6 +76,14 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
   同一节课不得两处出现；节次号只在焦点卡出现一次。改版前先读 DESIGN §3.3。
 - 可见星期序列以 `ScheduleCalculator.visibleDays` 为唯一来源、`columnOf` 取列下标；
   不要用 `day - 1` 当列号（隐藏周六但显示周日时会错位）。
+- 今日页底部固定区（快捷方式网格 + 开水卡）是 `TodayBottomDock`，**钉在滚动区下方**、不进
+  `LazyColumn`；三态（加载/空/有课）共用同一份，别只改一处。改版前先读 DESIGN §3.3。
+- 一次性消息**只有一条通道**：页面 Scaffold 的 `snackbarHost = { AppSnackbarHost(snackbar) }`
+  （`ui/common/AppNotice.kt`）。语气用 `NoticeTone` 四档，视觉规格见 DESIGN §3.2；
+  **禁止**新增 `android.widget.Toast`（系统黑框，与 App 其余浮层两套观感）。
+- `ModalBottomSheet` / `AlertDialog` 是**比页面高一层的独立窗口**：页面级提示在它打开时必然被盖住。
+  提示要落在弹层里就用 `InlineNoticeRow`（或先关弹层再提示），**不要**指望 Snackbar 穿透；
+  加弹层内的异步流程前先确认结果会显示在哪个窗口。
 
 ## 装真机
 

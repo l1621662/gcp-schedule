@@ -1,6 +1,5 @@
 package edu.jxslu.schedule.ui.today
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -23,12 +22,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -37,7 +39,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -75,10 +77,13 @@ import edu.jxslu.schedule.domain.sectionRange
 import edu.jxslu.schedule.domain.TimeSlot
 import edu.jxslu.schedule.domain.UnlockFlowState
 import edu.jxslu.schedule.domain.calculateActualCost
+import edu.jxslu.schedule.ui.common.AppNoticeVisuals
+import edu.jxslu.schedule.ui.common.AppSnackbarHost
 import edu.jxslu.schedule.ui.common.CourseDetailSheet
 import edu.jxslu.schedule.ui.common.CourseEditSheet
 import edu.jxslu.schedule.ui.common.DeleteConfirmDialog
 import edu.jxslu.schedule.ui.common.EmptyHint
+import edu.jxslu.schedule.ui.common.NoticeTone
 import edu.jxslu.schedule.ui.common.ShortcutIcon
 import edu.jxslu.schedule.ui.common.ShortcutLauncher
 import edu.jxslu.schedule.ui.common.ShortcutPinner
@@ -86,6 +91,7 @@ import edu.jxslu.schedule.ui.common.WaterUnlockButton
 import edu.jxslu.schedule.ui.common.courseColor
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
 import edu.jxslu.schedule.ui.common.rememberWaterRequireDoubleClick
+import edu.jxslu.schedule.ui.water.WaterEvent
 import edu.jxslu.schedule.ui.water.WaterViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -98,7 +104,7 @@ import edu.jxslu.schedule.domain.MONTH_DAY_FORMAT
 /**
  * 今日课表。
  *
- * 页面骨架：**顶部焦点卡（正在上课 / 下一节）+ 一列时间轴课程行 + 底部固定区**。
+ * 页面骨架：**顶部焦点卡（正在上课 / 下一节）+ 一列时间轴课程行 + 贴底固定区**。
  * - 焦点课只出现一次：焦点卡拿走第一门课，[TodayState.listCourses] 已把该课剔除，
  *   旧版「状态卡 + 列表首项」显示同一节课的问题不复存在。
  * - 时间只在行首出现一次（`10:15`），行内不再重复「第 N 节」与时刻——
@@ -108,7 +114,10 @@ import edu.jxslu.schedule.domain.MONTH_DAY_FORMAT
  *   编辑/删除是详情里的二级动作——直跳编辑器易误触。
  *
  * 底部固定区（DESIGN §3.3）：快捷方式三列图标网格（§3.8）在上、一键开水卡在最底，
- * 恒在列表尾部不随课程数漂移；开水卡默认常显（未登录给未登录态，显示设置可关）。
+ * 用 [TodayBottomDock]**钉在滚动区下方**——此前它们是 LazyColumn 的最后两项，
+ * 课少时悬在屏幕中段、课多时要滑到底才看得见，同一个「固定区」在空态（贴底）
+ * 与有课态（跟滚）之间还是两种表现。三态共用同一个 dock，位置不随状态漂移。
+ * 开水卡默认常显（未登录给未登录态，显示设置可关）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,6 +166,26 @@ fun TodayScreen(
         }
     }
 
+    // 开水卡在今日页也能发起解锁，事件得有人收——此前只有开水页收，
+    // 今日页点「开水」后的超时/失效提示全部静默丢弃（Channel 无人消费即无处可去）。
+    // 今日页与开水二级页各持一份 WaterViewModel（两个 Activity，登录态/订单走仓库共享），
+    // 所以两边各收自己那份的事件，不会重复消费。
+    LaunchedEffect(waterViewModel) {
+        waterViewModel?.events?.collect { event ->
+            when (event) {
+                is WaterEvent.Notice -> snackbar.showSnackbar(
+                    AppNoticeVisuals(event.text, tone = event.tone),
+                )
+            }
+        }
+    }
+
+    // 单条结果提示（钉桌面失败等）：与快捷方式拉起失败共用同一条 Snackbar 队列，
+    // 后到的消息自动排队，不会互相顶掉
+    val showNotice: (String, NoticeTone) -> Unit = { message, tone ->
+        scope.launch { snackbar.showSnackbar(AppNoticeVisuals(message, tone = tone)) }
+    }
+
     // 撤销型反馈（DESIGN §3.3）：删除课程后给「撤销」
     val undoable by viewModel.undoable.collectAsStateWithLifecycle()
     LaunchedEffect(undoable) {
@@ -165,6 +194,22 @@ fun TodayScreen(
             if (result == SnackbarResult.ActionPerformed) m.undo()
             viewModel.consumeUndoable()
         }
+    }
+
+    // 底部固定区（DESIGN §3.3）三态共用：同一份组合函数喂给加载中/空态/有课态，
+    // 「快捷方式在上、开水卡最底」的顺序与贴底位置只有一处定义
+    val bottomDock: @Composable () -> Unit = {
+        TodayBottomDock(
+            shortcuts = shortcuts,
+            onOpenShortcuts = onOpenShortcuts,
+            onShortcutError = showShortcutError,
+            onNotice = showNotice,
+            waterCard = if (waterCardEnabled && waterViewModel != null) {
+                { WaterCard(waterViewModel, onOpenWater) }
+            } else {
+                null
+            },
+        )
     }
 
     Scaffold(
@@ -191,28 +236,13 @@ fun TodayScreen(
                         )
                     }
                 },
-                // 一键开水入口不挂顶栏：列表尾部快捷卡整体可点进开水页，顶栏图标重复
+                // 一键开水入口不挂顶栏：底部固定区已有开水卡，顶栏图标重复
             )
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
     ) { padding ->
         when {
-            state.loading -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "正在读取本机课表",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                    )
-                }
-            }
+            state.loading -> TodayLoadingContent(padding, bottomDock)
 
             !state.inTerm -> TodayEmptyContent(
                 padding,
@@ -220,9 +250,7 @@ fun TodayScreen(
                 "先在「课表设置」里填好开学日期与周数，也能手动加课。",
                 actionLabel = "去设置学期",
                 onAction = onOpenTimetableSettings,
-                shortcuts = shortcuts,
-                onOpenShortcuts = onOpenShortcuts,
-                onShortcutError = showShortcutError,
+                bottomDock = bottomDock,
             )
 
             state.totalCourseCount == 0 -> TodayEmptyContent(
@@ -231,23 +259,14 @@ fun TodayScreen(
                 "课表默认为空，请登录教务系统导入「学期理论课表」，也可手动加课。",
                 actionLabel = "从教务导入",
                 onAction = onOpenJwImport,
-                shortcuts = shortcuts,
-                onOpenShortcuts = onOpenShortcuts,
-                onShortcutError = showShortcutError,
+                bottomDock = bottomDock,
             )
 
             else -> TodayContent(
                 state = state,
                 padding = padding,
                 onOpenCourse = { detailCourse = it },
-                waterCard = if (waterCardEnabled && waterViewModel != null) {
-                    { WaterCard(waterViewModel, onOpenWater) }
-                } else {
-                    null
-                },
-                shortcuts = shortcuts,
-                onOpenShortcuts = onOpenShortcuts,
-                onShortcutError = showShortcutError,
+                bottomDock = bottomDock,
             )
         }
     }
@@ -301,6 +320,76 @@ fun TodayScreen(
 }
 
 /**
+ * 底部固定区（DESIGN §3.3）：**钉在滚动区下方**，不随课表滚动。
+ *
+ * 结构：快捷方式三列图标网格（§3.8）在上，一键开水卡恒在最底。三态（加载中/空态/有课态）
+ * 共用本组件，位置不随状态漂移；快捷方式开关关着或列表为空时整段不占位，
+ * 开水卡关掉时同理（只剩一个空 Column，高度为 0）。
+ *
+ * **高度上限**：屏高 45%。8 条快捷方式（3 行）+ 开水卡在大字体小屏上足以吃掉半屏，
+ * 超过上限时 dock 内部可滚——保住课表的可视区，也保证每个入口都还能够到
+ * （不设上限的话，超出的部分会被挤出屏幕且无法访问）。
+ */
+@Composable
+private fun TodayBottomDock(
+    shortcuts: ShortcutSettings,
+    onOpenShortcuts: (String?) -> Unit,
+    onShortcutError: (String, String?) -> Unit,
+    onNotice: (String, NoticeTone) -> Unit = { _, _ -> },
+    /** 开水卡（含未登录态，显示设置可关）；恒为 dock 最后一项 */
+    waterCard: (@Composable () -> Unit)? = null,
+) {
+    val hasShortcuts = shortcuts.enabled && shortcuts.items.isNotEmpty()
+    if (!hasShortcuts && waterCard == null) return
+
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.45f).dp
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = maxHeight)
+            .verticalScroll(rememberScrollState())
+            .padding(top = 12.dp, bottom = 16.dp),
+    ) {
+        if (hasShortcuts) {
+            ShortcutQuickGrid(shortcuts.items, { onOpenShortcuts(null) }, onShortcutError, onNotice)
+        }
+        if (waterCard != null) {
+            // 快捷方式在时给它一段呼吸距离；单独出现时不再顶一截空白
+            Box(Modifier.padding(top = if (hasShortcuts) 16.dp else 0.dp)) { waterCard() }
+        }
+    }
+}
+
+/** 加载态：居中进度指示，底部固定区照常在位（DESIGN §3.3「加载中不留白屏」）。 */
+@Composable
+private fun TodayLoadingContent(
+    padding: PaddingValues,
+    bottomDock: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+    ) {
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "正在读取本机课表",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                )
+            }
+        }
+        bottomDock()
+    }
+}
+
+/**
  * 空态（未开学 / 课表为空）：居中提示 + 底部固定区。
  * 快捷方式网格与开水卡在空态也上桌（DESIGN §3.3/§3.8）——假期恰是取件码高频时段，
  * 课表为空不等于入口该消失。
@@ -312,10 +401,7 @@ private fun TodayEmptyContent(
     body: String,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
-    shortcuts: ShortcutSettings = ShortcutSettings(),
-    onOpenShortcuts: (String?) -> Unit = {},
-    onShortcutError: (String, String?) -> Unit = { _, _ -> },
-    waterCard: (@Composable () -> Unit)? = null,
+    bottomDock: @Composable () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -328,14 +414,7 @@ private fun TodayEmptyContent(
         ) {
             EmptyHint(title, body, actionLabel, onAction)
         }
-        if (shortcuts.enabled && shortcuts.items.isNotEmpty()) {
-            ShortcutQuickGrid(shortcuts.items, { onOpenShortcuts(null) }, onShortcutError)
-            Spacer(Modifier.height(16.dp))
-        }
-        // 开水卡恒在底部固定区最后一项（含未登录态；显示设置可关）
-        if (waterCard != null) {
-            Box(Modifier.padding(bottom = 16.dp)) { waterCard() }
-        }
+        bottomDock()
     }
 }
 
@@ -344,73 +423,59 @@ private fun TodayContent(
     state: TodayState,
     padding: PaddingValues,
     onOpenCourse: (Course) -> Unit,
-    /** 开水卡（含未登录态，显示设置可关）；放底部固定区最后一项 */
-    waterCard: (@Composable () -> Unit)? = null,
-    /** 今日页快捷方式（DESIGN §3.8）：三列图标网格，开水卡上方 */
-    shortcuts: ShortcutSettings = ShortcutSettings(),
-    onOpenShortcuts: (String?) -> Unit = {},
-    onShortcutError: (String, String?) -> Unit = { _, _ -> },
+    bottomDock: @Composable () -> Unit,
 ) {
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(bottom = 16.dp),
     ) {
-        val focus = state.ongoing ?: state.next
-        // 焦点卡 ↔「上完/没课」的切换给淡入淡出：这是今日页最常发生的状态跳变
-        //（下课瞬间），硬切显得突兀
-        item(key = "focus") {
-            AnimatedContent(
-                targetState = focus,
-                contentKey = { it?.id },
-                transitionSpec = {
-                    fadeIn(tween(220)) togetherWith fadeOut(tween(150))
-                },
-                label = "todayFocus",
-            ) { f ->
-                if (f == null) DoneBlock(state) else FocusCard(state, f, onOpenCourse)
-            }
-        }
-
-        // 「今天还有」只列焦点之外的课；正在上的课已在焦点卡里，不重复出现。
-        // 焦点课若是当天唯一剩余（focus 取走它后列表为空），整段标题也不出现——
-        // 「今天还有 1 节」下面空着比不显示更费解。
-        if (state.listCourses.isNotEmpty()) {
-            item(key = "remaining-header") {
-                SectionLabel("今天还有 ${state.remaining.size} 节")
-            }
-            items(state.listCourses, key = { it.id }) { course ->
-                CourseTimelineRow(
-                    course = course,
-                    slots = state.slots,
-                    onClick = { onOpenCourse(course) },
-                    // 删除/新增课程时列表项平滑进出场，不再整列硬跳
-                    modifier = Modifier.animateItem(),
-                )
-            }
-        }
-
-        // 明天只在今天没有待上课程（上完 / 没课）时上桌，今天的信息优先
-        if (state.tomorrowVisible) {
-            item(key = "tomorrow") { TomorrowBlock(state, onOpenCourse) }
-        }
-
-        // ---- 底部固定区（DESIGN §3.3）：恒在列表尾部，开水卡永远最后一项 ----
-        // 快捷方式三列网格在上（§3.8）；开关关着或列表为空时不占位
-        if (shortcuts.enabled && shortcuts.items.isNotEmpty()) {
-            item(key = "shortcuts") {
-                Box(Modifier.padding(top = 20.dp)) {
-                    ShortcutQuickGrid(shortcuts.items, { onOpenShortcuts(null) }, onShortcutError)
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = 16.dp),
+        ) {
+            val focus = state.ongoing ?: state.next
+            // 焦点卡 ↔「上完/没课」的切换给淡入淡出：这是今日页最常发生的状态跳变
+            //（下课瞬间），硬切显得突兀
+            item(key = "focus") {
+                AnimatedContent(
+                    targetState = focus,
+                    contentKey = { it?.id },
+                    transitionSpec = {
+                        fadeIn(tween(220)) togetherWith fadeOut(tween(150))
+                    },
+                    label = "todayFocus",
+                ) { f ->
+                    if (f == null) DoneBlock(state) else FocusCard(state, f, onOpenCourse)
                 }
             }
-        }
-        // 开水卡在最底（默认常显，含未登录态；显示设置「显示开水卡片」可关）
-        if (waterCard != null) {
-            item(key = "water") {
-                Box(Modifier.padding(top = 16.dp)) { waterCard() }
+
+            // 「今天还有」只列焦点之外的课；正在上的课已在焦点卡里，不重复出现。
+            // 焦点课若是当天唯一剩余（focus 取走它后列表为空），整段标题也不出现——
+            // 「今天还有 1 节」下面空着比不显示更费解。
+            if (state.listCourses.isNotEmpty()) {
+                item(key = "remaining-header") {
+                    SectionLabel("今天还有 ${state.remaining.size} 节")
+                }
+                items(state.listCourses, key = { it.id }) { course ->
+                    CourseTimelineRow(
+                        course = course,
+                        slots = state.slots,
+                        onClick = { onOpenCourse(course) },
+                        // 删除/新增课程时列表项平滑进出场，不再整列硬跳
+                        modifier = Modifier.animateItem(),
+                    )
+                }
+            }
+
+            // 明天只在今天没有待上课程（上完 / 没课）时上桌，今天的信息优先
+            if (state.tomorrowVisible) {
+                item(key = "tomorrow") { TomorrowBlock(state, onOpenCourse) }
             }
         }
+
+        // 底部固定区（DESIGN §3.3）：恒贴底，不随上面的课表滚动
+        bottomDock()
     }
 }
 
@@ -864,6 +929,7 @@ private fun ShortcutQuickGrid(
     items: List<ShortcutItem>,
     onOpenSettings: () -> Unit,
     onShortcutError: (String, String?) -> Unit,
+    onNotice: (String, NoticeTone) -> Unit = { _, _ -> },
 ) {
     Column(
         modifier = Modifier
@@ -881,6 +947,7 @@ private fun ShortcutQuickGrid(
                         item = item,
                         onOpenSettings = onOpenSettings,
                         onShortcutError = onShortcutError,
+                        onNotice = onNotice,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -898,6 +965,7 @@ private fun ShortcutGridCell(
     item: ShortcutItem,
     onOpenSettings: () -> Unit,
     onShortcutError: (String, String?) -> Unit,
+    onNotice: (String, NoticeTone) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -938,9 +1006,11 @@ private fun ShortcutGridCell(
                     onClick = {
                         menuOpen = false
                         haptics.tap()
-                        // 钉桌面会弹系统确认框，成功无需再提示；失败（桌面不支持等）Toast
+                        // 钉桌面会弹系统确认框，成功无需再提示；失败（桌面不支持等）报结果。
+                        // 不走 onShortcutError：那条通道带「去设置」动作，而桌面不支持、
+                        // 目标未安装都不是设置页能修的，给出口反而误导
                         ShortcutPinner.pin(context, item)?.let { message ->
-                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            onNotice(message, NoticeTone.Warning)
                         }
                     },
                 )

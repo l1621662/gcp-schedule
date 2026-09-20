@@ -24,7 +24,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +51,9 @@ import edu.jxslu.schedule.domain.Course
 import edu.jxslu.schedule.domain.CourseKind
 import edu.jxslu.schedule.domain.DetectGroup
 import edu.jxslu.schedule.domain.DetectReportPayload
+import edu.jxslu.schedule.ui.common.AppNoticeVisuals
+import edu.jxslu.schedule.ui.common.AppSnackbarHost
+import edu.jxslu.schedule.ui.common.NoticeTone
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -96,7 +98,7 @@ fun ScheduleUpdateScreen(
     Scaffold(
         // 与 TweakDetectScreen 同一根因：SubpageActivity 独立窗口里没有外层 Scaffold 垫状态栏，
         // inset 归零会让顶栏顶进状态栏。走 M3 默认，与其余二级页同口径。
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("更新课表") },
@@ -142,7 +144,11 @@ fun ScheduleUpdateScreen(
                                     try {
                                         val outcome = JwDetectRunner(context)
                                             .run(JwDetectRunner.Trigger.Manual)
-                                        snackbar.showSnackbar(detectOutcomeMessage(outcome))
+                                        // 结果带语气（成功/警告/错误），与弹层内联结果同一套映射
+                                        val notice = detectOutcomeNotice(outcome)
+                                        snackbar.showSnackbar(
+                                            AppNoticeVisuals(notice.text, tone = notice.tone),
+                                        )
                                     } finally {
                                         busy = false
                                     }
@@ -201,7 +207,12 @@ fun ScheduleUpdateScreen(
                             onClick = {
                                 scope.launch {
                                     viewModel.ignore()
-                                    snackbar.showSnackbar("已忽略本次差异，下次检测仍会提醒")
+                                    snackbar.showSnackbar(
+                                        AppNoticeVisuals(
+                                            "已忽略本次差异，下次检测仍会提醒",
+                                            tone = NoticeTone.Info,
+                                        ),
+                                    )
                                     onBack()
                                 }
                             },
@@ -215,11 +226,18 @@ fun ScheduleUpdateScreen(
                                         else checked[groupKey(g)] == true
                                     }
                                     if (chosen.isEmpty()) {
-                                        snackbar.showSnackbar("未勾选任何课程")
+                                        snackbar.showSnackbar(
+                                            AppNoticeVisuals("未勾选任何课程", tone = NoticeTone.Warning),
+                                        )
                                         return@launch
                                     }
                                     viewModel.apply(chosen)
-                                    snackbar.showSnackbar("已更新 ${chosen.size} 门课")
+                                    snackbar.showSnackbar(
+                                        AppNoticeVisuals(
+                                            "已更新 ${chosen.size} 门课",
+                                            tone = NoticeTone.Success,
+                                        ),
+                                    )
                                     onBack()
                                 }
                             },

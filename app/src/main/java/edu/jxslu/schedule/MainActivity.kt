@@ -259,6 +259,9 @@ fun JuwApp() {
                     onOpenWater = {
                         SubpageActivity.start(context, SubpageScreen.WATER)
                     },
+                    onOpenWaterSettings = {
+                        SubpageActivity.start(context, SubpageScreen.WATER_SETTINGS)
+                    },
                     waterLoggedIn = waterLoggedIn,
                 )
             }

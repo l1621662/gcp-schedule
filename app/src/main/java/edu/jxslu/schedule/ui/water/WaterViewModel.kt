@@ -10,6 +10,7 @@ import edu.jxslu.schedule.data.qiekj.QiekjRepository
 import edu.jxslu.schedule.data.qiekj.TokenExpiredException
 import edu.jxslu.schedule.data.qiekj.UnlockException
 import edu.jxslu.schedule.domain.UnlockFlowState
+import edu.jxslu.schedule.ui.common.NoticeTone
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -47,7 +48,8 @@ data class WaterUiState(
 )
 
 sealed interface WaterEvent {
-    data class Toast(val text: String) : WaterEvent
+    /** 一次性结果提示（登录/验证码/出水超时/查询失败…）；[tone] 决定页面提示卡的语气。 */
+    data class Notice(val text: String, val tone: NoticeTone) : WaterEvent
 }
 
 /**
@@ -77,9 +79,17 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
     val uiState: StateFlow<WaterUiState> = _uiState.asStateFlow()
 
     private val _events = Channel<WaterEvent>(Channel.BUFFERED)
+
+    /**
+     * 一次性提示事件。页面（开水页 / 今日页开水卡）负责收集并展示——
+     * 两边都必须有收集者，否则事件会留在缓冲里直到下一次有人收，
+     * 或随 ViewModel 一起消失（今日页此前就不收，出水超时与登录失效在那里是静默的）。
+     */
     val events = _events.receiveAsFlow()
 
-    private fun toast(text: String) = _events.trySend(WaterEvent.Toast(text))
+    /** 提示（默认中性语气）。失败路径一律给 [NoticeTone.Error]，见各调用点。 */
+    private fun notice(text: String, tone: NoticeTone = NoticeTone.Info) =
+        _events.trySend(WaterEvent.Notice(text, tone))
 
     init {
         if (_uiState.value.loggedIn) {
@@ -107,7 +117,7 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
         val phone = _uiState.value.phone.trim()
         val elapsed = System.currentTimeMillis() - codeSentAt
         if (elapsed < 60_000) {
-            toast("验证码已发送，请 ${(60 - elapsed / 1000).toInt()} 秒后再试")
+            notice("验证码已发送，请 ${(60 - elapsed / 1000).toInt()} 秒后再试", NoticeTone.Warning)
             return@launch
         }
         if (phone.length != 11) {
@@ -119,9 +129,9 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
             repo.sendCode(phone)
         }.onSuccess {
             codeSentAt = System.currentTimeMillis()
-            toast("验证码已发送")
+            notice("验证码已发送", NoticeTone.Success)
         }.onFailure {
-            toast(it.message ?: "验证码发送失败")
+            notice(it.message ?: "验证码发送失败", NoticeTone.Error)
         }
         _uiState.update { it.copy(sendingCode = false) }
     }
@@ -133,7 +143,7 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
             return@launch
         }
         if (s.code.isBlank()) {
-            toast("请输入验证码")
+            notice("请输入验证码", NoticeTone.Warning)
             return@launch
         }
         runCatching {
@@ -144,14 +154,14 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
             onLoginSuccess("登录成功")
         }.onFailure {
             _uiState.update { it.copy(loggingIn = false) }
-            toast(it.message ?: "登录失败")
+            notice(it.message ?: "登录失败", NoticeTone.Error)
         }
     }
 
     fun loginWithToken() = viewModelScope.launch {
         val token = _uiState.value.tokenLoginInput.trim()
         if (token.isBlank()) {
-            toast("请输入 Token")
+            notice("请输入 Token", NoticeTone.Warning)
             return@launch
         }
         runCatching {
@@ -163,7 +173,7 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
         }.onFailure {
             repo.logout()
             _uiState.update { it.copy(tokenLoggingIn = false) }
-            toast(it.message ?: "Token 无效或已过期")
+            notice(it.message ?: "Token 无效或已过期", NoticeTone.Error)
         }
     }
 
@@ -180,7 +190,7 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
                 orderHistory = repo.orderHistory(),
             )
         }
-        toast(message)
+        notice(message, NoticeTone.Success)
         refreshBalance()
         refreshDevices()
     }
@@ -189,14 +199,14 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
         cancelFlowJobs()
         repo.logout()
         _uiState.update { WaterUiState() }
-        toast("已退出胖乖登录")
+        notice("已退出胖乖登录")
     }
 
     private fun handleTokenExpired() {
         cancelFlowJobs()
         repo.logout()
         _uiState.update { WaterUiState() }
-        toast("登录已失效，请重新登录")
+        notice("登录已失效，请重新登录", NoticeTone.Warning)
     }
 
     // ── 资产 / 设备 ──
@@ -210,7 +220,11 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
             _uiState.update { it.copy(balance = balance, loadingBalance = false) }
         }.onFailure {
             _uiState.update { it.copy(loadingBalance = false) }
-            if (it is TokenExpiredException) handleTokenExpired() else toast(it.message ?: "查询余额失败")
+            if (it is TokenExpiredException) {
+                handleTokenExpired()
+            } else {
+                notice(it.message ?: "查询余额失败", NoticeTone.Error)
+            }
         }
     }
 
@@ -227,7 +241,11 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
             }
         }.onFailure {
             _uiState.update { it.copy(loadingDevices = false) }
-            if (it is TokenExpiredException) handleTokenExpired() else toast(it.message ?: "查询历史设备失败")
+            if (it is TokenExpiredException) {
+                handleTokenExpired()
+            } else {
+                notice(it.message ?: "查询历史设备失败", NoticeTone.Error)
+            }
         }
     }
 
@@ -239,7 +257,7 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
 
     fun unlock() {
         val device = _uiState.value.selectedDevice ?: run {
-            toast("请先选择设备")
+            notice("请先选择设备", NoticeTone.Warning)
             return
         }
         unlockJob = viewModelScope.launch {
@@ -322,7 +340,7 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
             if (_uiState.value.flow is UnlockFlowState.Working) {
                 cancelTimerOnly()
                 _uiState.update { it.copy(flow = UnlockFlowState.Idle) }
-                toast("出水超时，饮水机已自动关闭并结算")
+                notice("出水超时，饮水机已自动关闭并结算", NoticeTone.Warning)
                 refreshBalance()
                 refreshDevices()
             }

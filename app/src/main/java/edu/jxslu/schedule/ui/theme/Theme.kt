@@ -51,6 +51,8 @@ fun JuwTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = JuwTypography,
-        content = content,
-    )
+    ) {
+        // 语气色（成功/警告）M3 无对应角色，随深浅色在这里统一提供（提示卡用，见 AppNotice）
+        ProvideSemanticColors(darkTheme) { content() }
+    }
 }

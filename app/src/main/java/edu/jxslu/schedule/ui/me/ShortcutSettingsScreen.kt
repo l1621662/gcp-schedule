@@ -5,7 +5,6 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
-import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -70,6 +69,9 @@ import edu.jxslu.schedule.domain.ShortcutItem
 import edu.jxslu.schedule.domain.ShortcutOps
 import edu.jxslu.schedule.domain.ShortcutSettings
 import edu.jxslu.schedule.domain.Shortcuts
+import edu.jxslu.schedule.ui.common.InlineNoticeRow
+import edu.jxslu.schedule.ui.common.NoticeFeedback
+import edu.jxslu.schedule.ui.common.NoticeTone
 import edu.jxslu.schedule.ui.common.SettingItem
 import edu.jxslu.schedule.ui.common.SettingSwitchRow
 import edu.jxslu.schedule.ui.common.SettingsDivider
@@ -128,10 +130,6 @@ private fun ShortcutItem.toDraft(): ShortcutDraft = ShortcutDraft(
     activity = activity,
     icon = icon,
 )
-
-private fun toast(context: Context, message: String) {
-    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-}
 
 /** 已安装应用选择器的列表项（DESIGN §3.8）：点一下填好包名，Activity 留给用户按需补。 */
 private data class InstalledApp(
@@ -310,10 +308,11 @@ fun ShortcutSettingsScreen(
                 editing = null
             },
             onTest = { item ->
-                // 测试不落盘：用当前表单值直接拉起，结果与今日页同一执行层
+                // 测试不落盘：用当前表单值直接拉起，结果与今日页同一执行层。
+                // 结果作为行内反馈回给弹层（弹层不关，续测下一个配置时旧结果被覆盖）
                 ShortcutLauncher.launch(context, item)?.let {
-                    toast(context, it)
-                } ?: toast(context, "已启动「${item.name}」")
+                    NoticeFeedback(it, NoticeTone.Error)
+                } ?: NoticeFeedback("已启动「${item.name}」", NoticeTone.Success)
             },
             onResetConfirmed = if (draft.presetIndex >= 0 && draft.id != null) {
                 {
@@ -437,7 +436,8 @@ private fun ShortcutEditSheet(
     draft: ShortcutDraft,
     onDismiss: () -> Unit,
     onSave: (ShortcutItem) -> Unit,
-    onTest: (ShortcutItem) -> Unit,
+    /** 测试即拉起验证；返回结果（成功/失败）由弹层**行内**展示，见 [testResult] */
+    onTest: (ShortcutItem) -> NoticeFeedback,
     /** 非空 = 预设槽位，弹层显示「重置为默认」 */
     onResetConfirmed: (() -> Unit)?,
     /** 非空 = 自定义条目，弹层显示「删除」（点击后由外层确认弹窗兜底） */
@@ -450,6 +450,10 @@ private fun ShortcutEditSheet(
     var activity by remember(draft.id) { mutableStateOf(draft.activity) }
     var icon by remember(draft.id) { mutableStateOf(draft.icon) }
     var error by remember(draft.id) { mutableStateOf<String?>(null) }
+    // 测试结果（DESIGN §3.8「测试即时拉起验证，错误行内提示」）：表单不关，
+    // 结果就贴在按钮上方——此前是 Toast，而弹层是独立窗口、比页面高一层，
+    // 页面级提示在它下面根本看不见
+    var testResult by remember(draft.id) { mutableStateOf<NoticeFeedback?>(null) }
 
     // ---- 已安装应用选择器：按需加载一次，存在表单外层状态里避免反复查询 ----
     var showPicker by remember { mutableStateOf(false) }
@@ -619,6 +623,13 @@ private fun ShortcutEditSheet(
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
+            testResult?.let {
+                InlineNoticeRow(
+                    message = it.text,
+                    tone = it.tone,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
@@ -627,10 +638,11 @@ private fun ShortcutEditSheet(
                         val problem = Shortcuts.validate(item)
                         if (problem != null) {
                             error = problem
+                            testResult = null
                         } else {
                             // 先清掉上一次的行内错误：测试成功后弹层不关，旧错误挂着误导人
                             error = null
-                            onTest(item)
+                            testResult = onTest(item)
                         }
                     },
                 ) {

@@ -18,6 +18,8 @@ import edu.jxslu.schedule.domain.SemesterConfig
 import edu.jxslu.schedule.domain.TimeSlot
 import edu.jxslu.schedule.domain.Timetable
 import edu.jxslu.schedule.domain.TimetablePrefs
+import edu.jxslu.schedule.ui.common.NoticeFeedback
+import edu.jxslu.schedule.ui.common.NoticeTone
 import edu.jxslu.schedule.ui.common.UndoableMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -339,10 +341,12 @@ class WeekViewModel(
 
     // ---- 分享（DESIGN §4.12）：日历同步 / CSV / JSON ----
 
-    private val _shareMessage = MutableStateFlow<String?>(null)
+    // 结果带语气（成功/失败/警告），提示卡据此选图标与强调色；
+    // 只传文案的话 UI 侧就得靠字符串猜哪条是失败，那是把判断塞回展示层
+    private val _shareMessage = MutableStateFlow<NoticeFeedback?>(null)
 
-    /** 分享动作结果，UI 侧消费后置空（Snackbar 一次性展示）。 */
-    val shareMessage: StateFlow<String?> = _shareMessage
+    /** 分享动作结果，UI 侧消费后置空（提示卡一次性展示）。 */
+    val shareMessage: StateFlow<NoticeFeedback?> = _shareMessage
 
     fun consumeShareMessage() {
         _shareMessage.value = null
@@ -365,8 +369,8 @@ class WeekViewModel(
                 "已导出 ${events.size} 条课程（CSV）"
             }
             _shareMessage.value = result.fold(
-                onSuccess = { it },
-                onFailure = { "导出失败：${it.message}" },
+                onSuccess = { NoticeFeedback(it, NoticeTone.Success) },
+                onFailure = { NoticeFeedback("导出失败：${it.message}", NoticeTone.Error) },
             )
         }
     }
@@ -383,8 +387,8 @@ class WeekViewModel(
                 "已导出课表 JSON"
             }
             _shareMessage.value = result.fold(
-                onSuccess = { it },
-                onFailure = { "导出失败：${it.message}" },
+                onSuccess = { NoticeFeedback(it, NoticeTone.Success) },
+                onFailure = { NoticeFeedback("导出失败：${it.message}", NoticeTone.Error) },
             )
         }
     }
@@ -393,21 +397,34 @@ class WeekViewModel(
         viewModelScope.launch {
             val events = expandedEvents()
             if (events == null) {
-                _shareMessage.value = "请先在「我的 → 课表设置」配置学期，并确认课表不为空"
+                _shareMessage.value = NoticeFeedback(
+                    "请先在「我的 → 课表设置」配置学期，并确认课表不为空",
+                    NoticeTone.Warning,
+                )
                 return@launch
             }
             val reminder = repo.calendarReminderMinutes.first()
             _shareMessage.value = when (val r = CalendarSyncer.sync(context, events, reminder)) {
-                is CalendarSyncer.CalendarSyncResult.Success ->
-                    "已同步 ${r.count} 条课程到手机日历（${CalendarSyncDefaults.reminderLabel(reminder)}）"
-                is CalendarSyncer.CalendarSyncResult.Deleted ->
-                    "已删除 ${r.count} 条课程日历"
-                is CalendarSyncer.CalendarSyncResult.NoCalendarAccount ->
-                    "手机上没有可用日历账户，请先在系统日历中登录或添加账户"
-                is CalendarSyncer.CalendarSyncResult.NoPermission ->
-                    "日历权限未授予，无法同步"
-                is CalendarSyncer.CalendarSyncResult.Error ->
-                    "同步失败：${r.message}"
+                is CalendarSyncer.CalendarSyncResult.Success -> NoticeFeedback(
+                    "已同步 ${r.count} 条课程到手机日历（${CalendarSyncDefaults.reminderLabel(reminder)}）",
+                    NoticeTone.Success,
+                )
+                is CalendarSyncer.CalendarSyncResult.Deleted -> NoticeFeedback(
+                    "已删除 ${r.count} 条课程日历",
+                    NoticeTone.Success,
+                )
+                is CalendarSyncer.CalendarSyncResult.NoCalendarAccount -> NoticeFeedback(
+                    "手机上没有可用日历账户，请先在系统日历中登录或添加账户",
+                    NoticeTone.Warning,
+                )
+                is CalendarSyncer.CalendarSyncResult.NoPermission -> NoticeFeedback(
+                    "日历权限未授予，无法同步",
+                    NoticeTone.Warning,
+                )
+                is CalendarSyncer.CalendarSyncResult.Error -> NoticeFeedback(
+                    "同步失败：${r.message}",
+                    NoticeTone.Error,
+                )
             }
         }
     }

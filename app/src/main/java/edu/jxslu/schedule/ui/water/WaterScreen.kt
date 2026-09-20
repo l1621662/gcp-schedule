@@ -27,6 +27,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,6 +54,8 @@ import edu.jxslu.schedule.data.qiekj.DeviceItem
 import edu.jxslu.schedule.data.qiekj.OrderHistoryItem
 import edu.jxslu.schedule.domain.UnlockFlowState
 import edu.jxslu.schedule.domain.calculateActualCost
+import edu.jxslu.schedule.ui.common.AppNoticeVisuals
+import edu.jxslu.schedule.ui.common.AppSnackbarHost
 import edu.jxslu.schedule.ui.common.WaterUnlockButton
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -85,13 +88,16 @@ fun WaterScreen(
     val context = LocalContext.current
     var showDeviceSheet by remember { mutableStateOf(false) }
     var detailItem by remember { mutableStateOf<Any?>(null) }
+    val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                is WaterEvent.Toast -> android.widget.Toast.makeText(
-                    context, event.text, android.widget.Toast.LENGTH_LONG,
-                ).show()
+                // 登录/出水/查询的结果都在页面自己的提示卡里显示（不再用系统 Toast 的黑框）；
+                // 事件都源自页面内的点击与随后的异步回调，此刻不会有我们的弹层盖在上面
+                is WaterEvent.Notice -> snackbar.showSnackbar(
+                    AppNoticeVisuals(event.text, tone = event.tone),
+                )
             }
         }
     }
@@ -117,6 +123,7 @@ fun WaterScreen(
                 },
             )
         },
+        snackbarHost = { AppSnackbarHost(snackbar) },
     ) { padding ->
         if (!state.loggedIn) {
             Column(

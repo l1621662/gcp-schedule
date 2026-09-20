@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -33,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,7 +51,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import edu.jxslu.schedule.Graph
 import edu.jxslu.schedule.domain.LocalTimeLike
 import edu.jxslu.schedule.domain.buildTodayState
+import edu.jxslu.schedule.ui.common.AppNoticeVisuals
+import edu.jxslu.schedule.ui.common.AppSnackbarHost
+import edu.jxslu.schedule.ui.common.NoticeTone
 import edu.jxslu.schedule.ui.common.SettingsIconBadge
+import kotlinx.coroutines.launch
 import edu.jxslu.schedule.ui.common.SettingsSection
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
 import edu.jxslu.schedule.ui.widget.WidgetSize
@@ -97,6 +103,15 @@ fun WidgetSettingsScreen(onBack: () -> Unit) {
         }
     }
 
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // 添加失败（桌面不支持应用内添加）的提示出口，走全 App 统一卡片
+    val showNotice: (String) -> Unit = { message ->
+        scope.launch {
+            snackbar.showSnackbar(AppNoticeVisuals(message, tone = NoticeTone.Warning))
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -108,6 +123,7 @@ fun WidgetSettingsScreen(onBack: () -> Unit) {
                 },
             )
         },
+        snackbarHost = { AppSnackbarHost(snackbar) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -138,7 +154,7 @@ fun WidgetSettingsScreen(onBack: () -> Unit) {
                         summary = entry.summary,
                         added = caps.addedCount[entry.receiver] ?: 0,
                         canPin = caps.canPin,
-                        onAdd = { onAddClicked(context, entry) },
+                        onAdd = { onAddClicked(context, entry)?.let(showNotice) },
                     )
                 }
                 Spacer(Modifier.height(6.dp))
@@ -184,8 +200,9 @@ fun WidgetSettingsScreen(onBack: () -> Unit) {
             canPin = caps.canPin,
             onAdd = {
                 showIntro = false
-                // 弹层里的「现在添加」默认走 4×2（推荐）：横条在桌面上信息密度与可读性平衡最好
-                onAddClicked(context, widgetEntries[1])
+                // 弹层里的「现在添加」默认走 4×2（推荐）：横条在桌面上信息密度与可读性平衡最好。
+                // 弹层刚关（它也是独立窗口），提示改由页面宿主展示，不被盖住
+                onAddClicked(context, widgetEntries[1])?.let(showNotice)
             },
             onDismiss = { showIntro = false },
         )
@@ -215,10 +232,16 @@ private fun WidgetEntry.size(): WidgetSize = when (name) {
     else -> WidgetSize.Large
 }
 
-private fun onAddClicked(context: android.content.Context, entry: WidgetEntry) {
-    val ok = WidgetCapabilities.requestPin(context, entry.receiver)
-    if (!ok) WidgetCapabilities.toastManualAdd(context)
-}
+/**
+ * 添加小组件。返回 null = 已提交系统确认框；非 null = 用户可读错误，
+ * 由调用方走页面统一的 [AppSnackbarHost]（此前是系统 Toast，与本页其余提示两套观感）。
+ */
+private fun onAddClicked(context: android.content.Context, entry: WidgetEntry): String? =
+    if (WidgetCapabilities.requestPin(context, entry.receiver)) {
+        null
+    } else {
+        WidgetCapabilities.manualAddHint
+    }
 
 /** 卡内两行之间的换气线（与分区卡的克制风格一致）。 */
 @Composable

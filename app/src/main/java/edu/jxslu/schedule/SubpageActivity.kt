@@ -13,6 +13,7 @@ import edu.jxslu.schedule.ui.me.DataSettingsScreen
 import edu.jxslu.schedule.ui.me.ReminderSettingsScreen
 import edu.jxslu.schedule.ui.me.ShortcutSettingsScreen
 import edu.jxslu.schedule.ui.me.TimetableSettingsScreen
+import edu.jxslu.schedule.ui.me.WaterSettingsScreen
 import edu.jxslu.schedule.ui.me.WidgetSettingsScreen
 import edu.jxslu.schedule.ui.detect.ScheduleUpdateScreen
 import edu.jxslu.schedule.ui.detect.TweakDetectScreen
@@ -33,6 +34,8 @@ enum class SubpageScreen {
     COURSE_TWEAK,
     /** 我的/今日 → 胖乖开水 */
     WATER,
+    /** 我的 → 胖乖生活 → 开水设置（开水卡显示 · 点击方式） */
+    WATER_SETTINGS,
     /** 我的 → 桌面小组件（DESIGN §3.6） */
     WIDGET_SETTINGS,
     /** 我的 → 日历同步（提醒时长 · 一键删除，DESIGN §4.12） */
@@ -88,6 +91,7 @@ class SubpageActivity : ComponentActivity() {
             SubpageScreen.DATA_SETTINGS -> DataSettingsScreen(onBack = onBack)
             SubpageScreen.COURSE_TWEAK -> CourseTweakScreen(onBack = onBack)
             SubpageScreen.WATER -> WaterScreen(onBack = onBack)
+            SubpageScreen.WATER_SETTINGS -> WaterSettingsScreen(onBack = onBack)
             SubpageScreen.WIDGET_SETTINGS -> WidgetSettingsScreen(onBack = onBack)
             SubpageScreen.CALENDAR_SETTINGS -> CalendarSettingsScreen(onBack = onBack)
             SubpageScreen.REMINDER_SETTINGS -> ReminderSettingsScreen(onBack = onBack)

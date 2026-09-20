@@ -231,13 +231,6 @@ fun DisplaySettingsContent(
                 checked = prefs.tapBlankToAdd,
                 onCheckedChange = viewModel::setTapBlankToAdd,
             )
-            // 今日页底部固定区的开水卡（DESIGN §3.3）：默认开；关掉后今日页不再展示
-            // （含未登录态）。放在「内容与开关」组尾部，与快捷方式开关语义同级
-            SettingSwitchRow(
-                title = "显示开水卡片",
-                checked = prefs.waterCardEnabled,
-                onCheckedChange = viewModel::setWaterCardEnabled,
-            )
             // 周末拆成两项（而非原来的单一「显示周六、周日」）：
             // 根因：一个布尔只能表达「都显示 / 都不显示」，
             // 而实际存在「周六有课、周日无课」这类课表，用户希望只留有用的那一列。
