@@ -1105,9 +1105,30 @@ goods/latestUsed(categoryCode=5) 取设备
   （带积分 / 不带积分，按设置开关选择）
 → 轮询 goods/water/sync（1s × ≤300，workStatus==2 为出水中）
 → order/afterPay/creating(orderNo)  创建后付订单（orderNo 取 sync.identify ?: unlock.orderNo）
-→ order/detail(orderId)             取原价/小票/积分明细（promotionType 4=小票 8=积分）
+→ order/detail(orderId)             取真实账单（字段语义见下方「账单口径」，2026-09-20 实测回填）
 → 写本地订单快照 OrderHistoryStore
 ```
+
+**账单口径（2026-09-20 真机实测回填，修复「实付显示 0 看似 bug」）**
+
+`order/detail` 真实响应关键字段（单位均为元；单号/设备号等隐私字段略）：
+
+```
+markPrice          计量计费金额（本次用水的原价口径）
+payPrice           实付金额（服务端口径，本口径为展示实付的唯一权威来源）
+payTypeName        支付方式名（如「支付宝-代扣」，后付单 payType=15 对应 method=15 渠道）
+tokenCoinDiscount  平台侧自动优惠金额（如 0.09；用户未主动用券也会出现，感知不到，
+                   这是「实付 0 但用户以为没抵扣」困惑的根源）
+tradeOrderItem[].originPrice / realPrice   原价 / 实付（与 payPrice 一致）
+promotionList[].promotionType / discountAmount / subsidyAmount
+                   4=券类抵扣（含平台自动优惠）、8=积分抵扣；subsidyAmount=平台补贴
+```
+
+- **实付展示口径**：优先取服务端 `realPrice`（回退 `payPrice`，都缺失才回退本地
+  `origin - Σdiscount` 公式）。公式保留作兜底，不再作为主口径——服务端账单是唯一权威。
+- **订单详情弹窗必须展示账单明细**（原价 / 券与平台优惠 / 支付方式 / 实付），
+  实付为 0.00 时用户能看出钱被什么抵掉；只展示一个孤零零的「实付 ¥0.00」视同信息缺失。
+- 本地快照同步存 `realPrice` / `payTypeName`（可空，默认 null 兼容旧快照）。
 
 **UI 接入**
 

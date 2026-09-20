@@ -3,6 +3,7 @@ package edu.jxslu.schedule.qiekj
 import edu.jxslu.schedule.data.qiekj.ApiEnvelope
 import edu.jxslu.schedule.data.qiekj.BalanceData
 import edu.jxslu.schedule.data.qiekj.LoginData
+import edu.jxslu.schedule.data.qiekj.OrderDetailData
 import edu.jxslu.schedule.data.qiekj.OrderHistoryItem
 import edu.jxslu.schedule.data.qiekj.QiekjJson
 import edu.jxslu.schedule.data.qiekj.TokenExpiredException
@@ -148,5 +149,78 @@ class QiekjModelsTest {
     @Test
     fun actualCost_原价不可解析时原样返回() {
         assertEquals("-", calculateActualCost(result("-", "0.10")))
+    }
+
+    // ── 服务端账单口径（DESIGN §4.10，2026-09-20 真机实测回填） ──
+
+    @Test
+    fun orderDetail_真实响应形态解析() {
+        // 脱敏后的 order/detail 真实结构：后付单实付 0.00，平台自动优惠 0.09
+        val data = QiekjJson.json.decodeFromString<ApiEnvelope<OrderDetailData>>(
+            """
+            {"code":0,"msg":"成功","data":{
+              "orderNo":"NO","orderType":3,"orderStatus":2,
+              "markPrice":"0.09","payPrice":"0.00","payType":15,"payTypeName":"支付宝-代扣",
+              "tokenCoinDiscount":"0.09",
+              "tradeOrderItem":[{"originPrice":"0.09","realPrice":"0.00"}],
+              "promotionList":[{"promotionType":4,"discountAmount":"0.09","subsidyAmount":"0.00"}]
+            }}
+            """.trimIndent(),
+        )
+        val detail = data.requireData()
+        assertEquals("0.00", detail.payPrice)
+        assertEquals("支付宝-代扣", detail.payTypeName)
+        assertEquals("0.09", detail.tokenCoinDiscount)
+        assertEquals("0.09", detail.tradeOrderItem.first().originPrice)
+        assertEquals("0.00", detail.tradeOrderItem.first().realPrice)
+        assertEquals(4, detail.promotionList.first().promotionType)
+    }
+
+    @Test
+    fun actualCost_服务端realPrice优先于本地公式() {
+        // 真实场景：原价 0.09、券抵 0.09、实付 0.00 —— 服务端口径就是 0.00
+        val r = result("0.09", "-").copy(realPrice = "0.00", payTypeName = "支付宝-代扣")
+        assertEquals("0.00", calculateActualCost(r))
+        // 服务端 realPrice 与本地公式结果不同时，以服务端为准
+        val r2 = result("0.30", "-").copy(realPrice = "0.10")
+        assertEquals("0.10", calculateActualCost(r2))
+    }
+
+    @Test
+    fun actualCost_realPrice缺失回退本地公式() {
+        assertEquals("0.30", calculateActualCost(result("0.30", "-").copy(realPrice = null)))
+    }
+
+    @Test
+    fun orderHistoryItem_旧快照无新字段可解码() {
+        // 2026-09-20 之前的快照没有 realPrice/payTypeName/tokenCoinDiscount，decode 必须兼容
+        val legacy = """[{"orderNo":"NO","orderId":"ID","goodsName":"设备","originPrice":"0.09",
+            "ticketCost":"0.09","integralCost":"-","otherPromotions":[],"completedAt":100}]"""
+        val restored = QiekjJson.json.decodeFromString(
+            ListSerializer(OrderHistoryItem.serializer()),
+            legacy,
+        )
+        assertEquals(1, restored.size)
+        assertEquals(null, restored[0].realPrice)
+        assertEquals(null, restored[0].payTypeName)
+    }
+
+    @Test
+    fun orderHistoryItem_新字段往返() {
+        val item = OrderHistoryItem(
+            orderNo = "NO", orderId = "ID", goodsName = "设备",
+            originPrice = "0.09", ticketCost = "-", integralCost = "-",
+            completedAt = 0L, realPrice = "0.00",
+            payTypeName = "支付宝-代扣", tokenCoinDiscount = "0.09",
+        )
+        val json = QiekjJson.json.encodeToString(
+            ListSerializer(OrderHistoryItem.serializer()),
+            listOf(item),
+        )
+        val restored = QiekjJson.json.decodeFromString(
+            ListSerializer(OrderHistoryItem.serializer()),
+            json,
+        )
+        assertEquals(listOf(item), restored)
     }
 }

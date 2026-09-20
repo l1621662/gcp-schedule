@@ -25,6 +25,12 @@ data class UnlockResult(
     val integralCost: String,
     val otherPromotions: List<PromotionLine> = emptyList(),
     val completedAt: Long,
+    /** 服务端实付口径（DESIGN §4.10 账单口径，2026-09-20 起）；null 时实付回退本地公式。 */
+    val realPrice: String? = null,
+    /** 支付方式名（如「支付宝-代扣」）。 */
+    val payTypeName: String? = null,
+    /** 平台侧自动优惠金额（用户未主动用券也会出现）。 */
+    val tokenCoinDiscount: String? = null,
 )
 
 /** 错误诊断结果：主因给一行文案，建议列表进「查看详情」弹窗。 */
@@ -55,11 +61,17 @@ sealed interface UnlockFlowState {
 }
 
 /**
- * 实付金额 = 原价 - 积分抵扣 - 小票抵扣 - 其他优惠，夹到 0。
- * 根因：金额用 Double 会出 0.12-0.11=0.0099… 的浮点误差，再 %.2f 舍入可能错成 0.00；
- * 参考实现 MoneyUtils 用 BigDecimal 精确运算，这里保持一致。
+ * 实付金额口径（DESIGN §4.10「账单口径」，2026-09-20 修订）：
+ * 1. 优先取服务端 [UnlockResult.realPrice]——order/detail 的真实账单，唯一权威来源；
+ *    「实付 0.00」往往是平台自动优惠（tokenCoinDiscount）抵掉了原价，服务端账单为准。
+ * 2. realPrice 缺失/不可解析时回退本地公式：原价 - 积分 - 券 - 其他优惠，夹到 0。
+ *    根因（历史）：金额用 Double 会出 0.12-0.11=0.0099… 的浮点误差，再 %.2f 舍入可能
+ *    错成 0.00；参考实现 MoneyUtils 用 BigDecimal 精确运算，这里保持一致。
  */
 fun calculateActualCost(result: UnlockResult): String {
+    result.realPrice?.toBigDecimalOrNull()?.let { real ->
+        return real.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()
+    }
     val origin = result.originPrice.toBigDecimalOrNull()
     if (origin == null) return result.originPrice
     val integral = result.integralCost.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO

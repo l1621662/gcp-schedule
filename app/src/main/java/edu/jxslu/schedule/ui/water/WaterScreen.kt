@@ -103,8 +103,6 @@ fun WaterScreen(
     val prefsState by prefsViewModel.uiState.collectAsStateWithLifecycle()
     val haptics = rememberAppHaptics()
     val context = LocalContext.current
-    // 【临时诊断，验证后删除】给 ViewModel 挂 context 以便回放原始账单
-    LaunchedEffect(Unit) { viewModel.attachDiagContext(context) }
     var showDeviceSheet by remember { mutableStateOf(false) }
     var detailItem by remember { mutableStateOf<Any?>(null) }
     val snackbar = remember { SnackbarHostState() }
@@ -514,9 +512,14 @@ private fun UnlockStatusArea(
                 }
                 Spacer(Modifier.height(2.dp))
                 Text(
+                    // 账单明细一行：让「实付 0.00」有出处（平台优惠/券/积分 + 支付方式）
                     listOf(
-                        "小票 ${flow.result.ticketCost}",
+                        flow.result.tokenCoinDiscount?.toBigDecimalOrNull()
+                            ?.takeIf { it > java.math.BigDecimal.ZERO }
+                            ?.let { "平台优惠 ¥$it" },
+                        "小票 ${flow.result.ticketCost}".takeIf { flow.result.ticketCost != "-" },
                         "积分 ${flow.result.integralCost}".takeIf { flow.result.integralCost != "-" },
+                        flow.result.payTypeName,
                     ).filterNotNull().joinToString(" · ").ifBlank { "开水成功" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
@@ -663,6 +666,9 @@ private fun toResult(item: OrderHistoryItem) = edu.jxslu.schedule.domain.UnlockR
     integralCost = item.integralCost,
     otherPromotions = item.otherPromotions,
     completedAt = item.completedAt,
+    realPrice = item.realPrice,
+    payTypeName = item.payTypeName,
+    tokenCoinDiscount = item.tokenCoinDiscount,
 )
 
 @Composable
@@ -704,11 +710,17 @@ private fun OrderDetailDialog(item: edu.jxslu.schedule.domain.UnlockResult, onDi
             Column {
                 DetailRow("订单号", item.orderNo)
                 DetailRow("原价", "¥${item.originPrice}")
+                // 真实账单明细（DESIGN §4.10 账单口径）：实付 0.00 时让用户看出钱被什么抵掉
+                val platform = item.tokenCoinDiscount?.toBigDecimalOrNull()
+                if (platform != null && platform > java.math.BigDecimal.ZERO) {
+                    DetailRow("平台优惠", "-¥${item.tokenCoinDiscount}")
+                }
                 DetailRow("小票", item.ticketCost)
                 if (item.integralCost != "-") DetailRow("积分", item.integralCost)
                 item.otherPromotions.forEach { p ->
                     DetailRow("其他优惠", p.discountAmount ?: "-")
                 }
+                item.payTypeName?.let { DetailRow("支付方式", it) }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 DetailRow("实付", "¥${calculateActualCost(item)}")
             }

@@ -103,11 +103,16 @@ data class AfterPayCreatingData(
 data class OrderDetailData(
     val tradeOrderItem: List<TradeOrderItem> = emptyList(),
     val promotionList: List<PromotionItem> = emptyList(),
+    /** 服务端实付口径（DESIGN §4.10 账单口径）；缺失时回退 tradeOrderItem.realPrice。 */
+    @kotlinx.serialization.Serializable(LenientStringSerializer::class) val payPrice: String? = null,
+    @kotlinx.serialization.Serializable(LenientStringSerializer::class) val payTypeName: String? = null,
+    @kotlinx.serialization.Serializable(LenientStringSerializer::class) val tokenCoinDiscount: String? = null,
 )
 
 @Serializable
 data class TradeOrderItem(
     @kotlinx.serialization.Serializable(LenientStringSerializer::class) val originPrice: String? = null,
+    @kotlinx.serialization.Serializable(LenientStringSerializer::class) val realPrice: String? = null,
 )
 
 @Serializable
@@ -130,6 +135,12 @@ data class OrderHistoryItem(
     val integralCost: String,
     val otherPromotions: List<PromotionLine> = emptyList(),
     val completedAt: Long,
+    /** 服务端实付口径（2026-09-20 起）；旧快照无此字段，decode 为 null 后回退本地公式。 */
+    val realPrice: String? = null,
+    /** 支付方式名（如「支付宝-代扣」），旧快照为 null。 */
+    val payTypeName: String? = null,
+    /** 平台侧自动优惠金额（用户未主动用券也会出现），旧快照为 null。 */
+    val tokenCoinDiscount: String? = null,
 )
 
 // ── 异常 ──
