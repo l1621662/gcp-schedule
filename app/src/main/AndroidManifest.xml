@@ -72,41 +72,20 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- 桌面小组件三条目（DESIGN §3.6）：2×2 / 4×2 / 4×4 各一个 receiver，
-             共用同一个 TodayWidget 实现；差别只有元数据 XML 的默认格位与 label。
+        <!-- 课表小组件（DESIGN §3.6）：**单条目**（2026-09-20 起），尺寸自适应。
+             旧的三条目 receiver（Small/Wide/Large）已删——条目名变化会让桌面上
+             旧实例失效，用户重新添加一次即可。
              exported=false：系统按 AppWidget 机制拉起，不需要对外暴露。 -->
         <receiver
-            android:name=".ui.widget.TodayWidgetReceiverSmall"
+            android:name=".ui.widget.ScheduleWidgetReceiver"
             android:exported="false"
-            android:label="@string/widget_label_small">
+            android:label="@string/widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/widget_info_2x2" />
-        </receiver>
-        <receiver
-            android:name=".ui.widget.TodayWidgetReceiverWide"
-            android:exported="false"
-            android:label="@string/widget_label_wide">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_info_4x2" />
-        </receiver>
-        <receiver
-            android:name=".ui.widget.TodayWidgetReceiverLarge"
-            android:exported="false"
-            android:label="@string/widget_label_large">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_info_4x4" />
+                android:resource="@xml/widget_info" />
         </receiver>
 
         <!-- 小组件边界闹钟落点（上下课时刻刷新），仅内部广播 -->

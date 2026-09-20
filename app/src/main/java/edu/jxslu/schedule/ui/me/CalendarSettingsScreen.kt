@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -203,6 +204,8 @@ fun CalendarSettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
+            // 分区卡之间的 12dp 换气：漏了这行三张卡会上下紧贴（其余设置页统一口径）
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SettingsSection(
                 title = "同步到手机日历",

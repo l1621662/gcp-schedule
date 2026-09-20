@@ -7,9 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
-import edu.jxslu.schedule.ui.widget.TodayWidgetReceiverLarge
-import edu.jxslu.schedule.ui.widget.TodayWidgetReceiverSmall
-import edu.jxslu.schedule.ui.widget.TodayWidgetReceiverWide
+import edu.jxslu.schedule.ui.widget.ScheduleWidgetReceiver
 
 /**
  * 小组件能力检测与系统跳转（DESIGN §3.6 设置页）。
@@ -25,22 +23,27 @@ internal object WidgetCapabilities {
     fun canPin(context: Context): Boolean =
         AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported
 
-    /** 是否已把某条目添加到桌面（状态徽标 + 设置页计数用）。 */
-    fun addedCount(context: Context, receiver: Class<*>): Int =
-        AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, receiver)).size
+    /** 是否已把小组件添加到桌面（状态徽标 + 设置页计数用）。 */
+    fun addedCount(context: Context): Int =
+        AppWidgetManager.getInstance(context)
+            .getAppWidgetIds(ComponentName(context, ScheduleWidgetReceiver::class.java)).size
 
     /**
-     * 一键添加条目到桌面。返回 false 表示当前桌面不支持，由调用方提示手动添加。
+     * 一键添加小组件到桌面。返回 false 表示当前桌面不支持，由调用方提示手动添加。
      *
      * 系统确认框（「要添加小组件吗？」）由桌面弹出——这就是
      * 「进入设置界面自动向用户申请添加桌面快捷方式」的实际落点：我们发起申请，
      * 用户在系统框里一键确认，不需要用户自己去小组件选择器里翻。
      */
-    fun requestPin(context: Context, receiver: Class<*>): Boolean {
+    fun requestPin(context: Context): Boolean {
         val manager = AppWidgetManager.getInstance(context)
         if (!manager.isRequestPinAppWidgetSupported) return false
         return runCatching {
-            manager.requestPinAppWidget(ComponentName(context, receiver), null, null)
+            manager.requestPinAppWidget(
+                ComponentName(context, ScheduleWidgetReceiver::class.java),
+                null,
+                null,
+            )
         }.getOrDefault(false)
     }
 
@@ -97,6 +100,18 @@ internal object WidgetCapabilities {
      */
     const val manualAddHint: String = "当前桌面不支持一键添加，请长按桌面空白处 → 小组件 → 水贝贝"
 
+    /**
+     * 负一屏说明（DESIGN §3.6「负一屏」）。
+     *
+     * 澎湃OS / MIUI 的负一屏只收录「小米小部件」（需接入小米小部件开放平台并通过审核），
+     * 本 App 是安卓原生小组件，系统不保证能拖进负一屏——这是平台限制，不是 App 的缺陷。
+     * 文案给出两条可操作路径，避免用户以为「没做适配」。
+     */
+    const val launcherNote: String =
+        "澎湃OS / MIUI 的负一屏只收录「小米小部件」，本应用是安卓原生小组件，可能搜不到。" +
+            "替代：① 在负一屏右上角「+」搜索里试搜「水贝贝」；" +
+            "② 打开「我的 → 日历同步」，课程进系统日历后由负一屏的「日历日程」卡片展示。"
+
     private fun tryStart(context: Context, intent: Intent): Boolean =
         runCatching {
             if (intent.resolveActivity(context.packageManager) == null) return@runCatching false
@@ -105,15 +120,16 @@ internal object WidgetCapabilities {
         }.getOrDefault(false)
 }
 
-/** 小组件的三个条目与默认尺寸（与 res/xml/widget_info_*.xml 一一对应）。 */
-internal data class WidgetEntry(
-    val name: String,
-    val summary: String,
-    val receiver: Class<*>,
-)
-
-internal val widgetEntries = listOf(
-    WidgetEntry("2×2", "紧凑日期 + 正在上 / 下一节课", TodayWidgetReceiverSmall::class.java),
-    WidgetEntry("4×2", "日期 + 下一节课（横条）", TodayWidgetReceiverWide::class.java),
-    WidgetEntry("4×4", "完整今日 + 明日预告", TodayWidgetReceiverLarge::class.java),
-)
+/**
+ * 设置页的预览档位（DESIGN §3.6）。
+ *
+ * 单条目后**不再对应可添加的条目**：这四档只是「拖到多大长什么样」的形态说明
+ * （2×2 / 4×2 紧凑、2×4 列表、4×4 周网格），预览缩略图按各自的实测 dp 走同一套
+ * [edu.jxslu.schedule.ui.widget.widgetMetricsFor] 分档，保证预览与桌面所见一致。
+ */
+internal enum class WidgetPreviewSize(val label: String, val widthDp: Int, val heightDp: Int) {
+    Small("2×2", 110, 110),
+    Wide("4×2", 250, 110),
+    Tall("2×4", 110, 250),
+    Large("4×4", 250, 250),
+}

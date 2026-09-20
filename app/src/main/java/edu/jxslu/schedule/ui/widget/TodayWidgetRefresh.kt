@@ -33,13 +33,16 @@ import java.util.concurrent.TimeUnit
  * | WorkManager | 15 分钟周期 | 进程被杀、闹钟被 ROM 延迟、日期跨天时兜底 |
  *
  * **为什么用「闹钟 + Worker」而不是 widget 自己定时**：Glance 的 `provideContent` 挂起到会话
- * 关闭，组合里无法起常驻协程（见 [TodayWidget] 的说明）。系统级闹钟与 WorkManager 不依赖
+ * 关闭，组合里无法起常驻协程（见 [ScheduleWidget] 的说明）。系统级闹钟与 WorkManager 不依赖
  * App 存活，才能真正做到后台更新。
  *
  * **精度说明**：这里用 `setAndAllowWhileIdle`（不需要 `SCHEDULE_EXACT_ALARM` 权限，
  * 也不会因缺权限抛异常），在 Doze 下可能被推迟到下一个维护窗口。这是刻意的取舍：
  * 课表小组件不需要秒级准确，而精确闹钟权限会被应用商店与用户视为敏感权限。
  * 设置页的「忽略电池优化」引导能显著降低被推迟的概率。
+ *
+ * 文件名保留 `TodayWidget*`（改版只改了条目结构与渲染，刷新链路一行未动）——
+ * 重命名会牵动 `JuwApplication` 与 Manifest，收益为零。
  */
 internal object TodayWidgetRefresh {
 

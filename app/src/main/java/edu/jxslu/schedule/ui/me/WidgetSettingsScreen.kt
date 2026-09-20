@@ -1,5 +1,6 @@
 package edu.jxslu.schedule.ui.me
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,15 +55,22 @@ import edu.jxslu.schedule.ui.common.AppNoticeVisuals
 import edu.jxslu.schedule.ui.common.AppSnackbarHost
 import edu.jxslu.schedule.ui.common.NoticeTone
 import edu.jxslu.schedule.ui.common.SettingsIconBadge
-import kotlinx.coroutines.launch
 import edu.jxslu.schedule.ui.common.SettingsSection
+import edu.jxslu.schedule.ui.common.courseColor
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
-import edu.jxslu.schedule.ui.widget.WidgetSize
+import edu.jxslu.schedule.ui.widget.WidgetDay
+import edu.jxslu.schedule.ui.widget.WidgetFocus
+import edu.jxslu.schedule.ui.widget.WidgetLayout
+import edu.jxslu.schedule.ui.widget.WidgetModel
 import edu.jxslu.schedule.ui.widget.WidgetSnapshot
+import edu.jxslu.schedule.ui.widget.WidgetSnapshotStore
 import edu.jxslu.schedule.ui.widget.buildWidgetSnapshot
+import edu.jxslu.schedule.ui.widget.buildWidgetWeek
 import edu.jxslu.schedule.ui.widget.forSize
+import edu.jxslu.schedule.ui.widget.widgetMetricsFor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.BatteryCharging01
 import me.rerere.hugeicons.stroke.Energy
@@ -71,6 +78,11 @@ import java.time.LocalDate
 
 /**
  * 「我的 → 桌面小组件」设置页（DESIGN §3.6）。
+ *
+ * 2026-09-20 改版：可添加的条目从三条（2×2 / 4×2 / 4×4）合并为**一条**
+ * 「水贝贝 · 课表」——三者都能自由拖动改大小、落到同一形态后内容相同，选择器里纯冗余。
+ * 原来的三行变成「一条添加行 + 三张形态预览」，预览仍按三档尺寸各画一个缩略图，
+ * 但只作说明用（拖到多大长什么样），不再各自可添加。
  *
  * 交互规则（用户已拍板「自动检测 + 逐项申请」）：
  * - 进页面**只读检测**各能力/权限状态并展示；
@@ -136,27 +148,33 @@ fun WidgetSettingsScreen(onBack: () -> Unit) {
             SettingsSection(
                 title = "添加到桌面",
                 subtitle = if (caps.canPin) {
-                    "点「添加」后在系统确认框里一键放到桌面；添加后长按可拖动调整大小"
+                    "点「添加」后在系统确认框里一键放到桌面；之后拖动边缘可任意改大小，" +
+                        "内容随尺寸变——小的是「下一节」，大了自动变本周课表"
                 } else {
                     "当前桌面不支持应用内添加，请长按桌面空白处 → 小组件 → 水贝贝"
                 },
             ) {
                 Spacer(Modifier.height(4.dp))
-                widgetEntries.forEachIndexed { index, entry ->
-                    if (index > 0) {
-                        Spacer(Modifier.height(4.dp))
-                        Row(Modifier.fillMaxWidth()) { WidgetEntryDivider() }
-                        Spacer(Modifier.height(4.dp))
-                    }
-                    EntryRow(
-                        size = entry.size(),
-                        name = entry.name,
-                        summary = entry.summary,
-                        added = caps.addedCount[entry.receiver] ?: 0,
-                        canPin = caps.canPin,
-                        onAdd = { onAddClicked(context, entry)?.let(showNotice) },
-                    )
-                }
+                AddRow(
+                    added = caps.addedCount,
+                    canPin = caps.canPin,
+                    onAdd = { onAddClicked(context)?.let(showNotice) },
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
+            SettingsSection(
+                title = "尺寸形态",
+                subtitle = "拖到以下大致尺寸时的样子；中间尺寸会自动落在最合适的一档",
+            ) {
+                Spacer(Modifier.height(6.dp))
+                WidgetPreviewRow(WidgetPreviewSize.Small, "紧凑：日期 + 正在上 / 下一节")
+                Spacer(Modifier.height(10.dp))
+                WidgetPreviewRow(WidgetPreviewSize.Wide, "横条：日期 + 焦点课（课名更宽，地名全显示）")
+                Spacer(Modifier.height(10.dp))
+                WidgetPreviewRow(WidgetPreviewSize.Tall, "竖条：焦点课 + 今日剩余（行数随高度）")
+                Spacer(Modifier.height(10.dp))
+                WidgetPreviewRow(WidgetPreviewSize.Large, "大方：摘要 + 本周课表（今天 / 明天列高亮）")
                 Spacer(Modifier.height(6.dp))
             }
 
@@ -188,8 +206,11 @@ fun WidgetSettingsScreen(onBack: () -> Unit) {
             SettingsSection(title = "说明") {
                 Spacer(Modifier.height(6.dp))
                 Bullet("内容与「今日」页同一套口径：已结束的课不显示，今天上完自动换明日预告。")
+                Bullet("拖动可任意调整大小，内容随尺寸变化（2×2 到 5×5 都放得下）。")
                 Bullet("跟随系统深浅色；不占用额外网络。")
                 Bullet("「还有 N 分钟」按刷新时刻计算，两次刷新之间不会跳动。")
+                Spacer(Modifier.height(6.dp))
+                LauncherNoteRow()
                 Spacer(Modifier.height(6.dp))
             }
         }
@@ -200,48 +221,34 @@ fun WidgetSettingsScreen(onBack: () -> Unit) {
             canPin = caps.canPin,
             onAdd = {
                 showIntro = false
-                // 弹层里的「现在添加」默认走 4×2（推荐）：横条在桌面上信息密度与可读性平衡最好。
+                // 弹层里的「现在添加」默认钉一个 4×2（推荐）：横条在桌面上信息密度与
+                // 可读性平衡最好，之后可随时拖动改大小。
                 // 弹层刚关（它也是独立窗口），提示改由页面宿主展示，不被盖住
-                onAddClicked(context, widgetEntries[1])?.let(showNotice)
+                onAddClicked(context)?.let(showNotice)
             },
             onDismiss = { showIntro = false },
         )
     }
 }
 
-private fun readCaps(context: Context): WidgetCaps {
-    val canPin = WidgetCapabilities.canPin(context)
-    val counts = widgetEntries.associate { it.receiver to WidgetCapabilities.addedCount(context, it.receiver) }
-    return WidgetCaps(
-        canPin = canPin,
-        batteryWhitelisted = WidgetCapabilities.isIgnoringBatteryOptimizations(context),
-        addedCount = counts,
-    )
-}
+private fun readCaps(context: Context): WidgetCaps = WidgetCaps(
+    canPin = WidgetCapabilities.canPin(context),
+    batteryWhitelisted = WidgetCapabilities.isIgnoringBatteryOptimizations(context),
+    addedCount = WidgetCapabilities.addedCount(context),
+)
 
 private data class WidgetCaps(
     val canPin: Boolean,
     val batteryWhitelisted: Boolean,
-    val addedCount: Map<Class<*>, Int>,
+    val addedCount: Int,
 )
-
-/** 条目 → 预览档位（与 res/xml/widget_info_*.xml 的格位一致）。 */
-private fun WidgetEntry.size(): WidgetSize = when (name) {
-    "2×2" -> WidgetSize.Small
-    "4×2" -> WidgetSize.Wide
-    else -> WidgetSize.Large
-}
 
 /**
  * 添加小组件。返回 null = 已提交系统确认框；非 null = 用户可读错误，
  * 由调用方走页面统一的 [AppSnackbarHost]（此前是系统 Toast，与本页其余提示两套观感）。
  */
-private fun onAddClicked(context: android.content.Context, entry: WidgetEntry): String? =
-    if (WidgetCapabilities.requestPin(context, entry.receiver)) {
-        null
-    } else {
-        WidgetCapabilities.manualAddHint
-    }
+private fun onAddClicked(context: Context): String? =
+    if (WidgetCapabilities.requestPin(context)) null else WidgetCapabilities.manualAddHint
 
 /** 卡内两行之间的换气线（与分区卡的克制风格一致）。 */
 @Composable
@@ -251,12 +258,13 @@ private fun WidgetEntryDivider() {
     )
 }
 
-/** 单个条目行：左预览缩略 + 名称/摘要/已添加徽标 + 右「添加」。 */
+/**
+ * 唯一一条添加行：名称 + 摘要 + 已添加徽标 + 「添加」。
+ *
+ * 不再有三行（旧版每档尺寸一行）——单条目后只有一个 receiver，多行会重复指向它。
+ */
 @Composable
-private fun EntryRow(
-    size: WidgetSize,
-    name: String,
-    summary: String,
+private fun AddRow(
     added: Int,
     canPin: Boolean,
     onAdd: () -> Unit,
@@ -265,16 +273,13 @@ private fun EntryRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 68.dp)
-            .padding(vertical = 4.dp),
+            .heightIn(min = 60.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PreviewTile(size)
-        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = name,
+                    text = "水贝贝 · 课表",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -295,7 +300,7 @@ private fun EntryRow(
             }
             Spacer(Modifier.height(2.dp))
             Text(
-                text = summary,
+                text = "小尺寸看正在上 / 下一节与今日剩余，拖到 4×4 变本周课表",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 maxLines = 2,
@@ -386,9 +391,43 @@ private fun Bullet(text: String) {
     )
 }
 
+/**
+ * 负一屏说明行（DESIGN §3.6「负一屏」）。
+ *
+ * 单独成块而不是混在 Bullet 里：这是用户明确问过的点，值得给一句能照着做的话
+ * （去哪儿搜、搜不到怎么办），而不是一句「不支持」。
+ */
+@Composable
+private fun LauncherNoteRow() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = "负一屏",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = WidgetCapabilities.launcherNote,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+    }
+}
+
 // ---------- 预览缩略图：用真实课表数据画一个迷你 widget ----------
 
-/** 设置页展示用的快照（与小组件同一套状态推导），30 秒随时间重算一次。 */
+/**
+ * 设置页展示用的快照（与小组件同一套状态推导），30 秒随时间重算一次。
+ *
+ * 与 widget 侧的差别只有一处：**周网格直接构建**（不按尺寸跳过），
+ * 因为三张预览里有一张就是周网格档。渲染仍走 `forSize`，与桌面所见同源。
+ */
 @Composable
 private fun rememberPreviewSnapshot(): WidgetSnapshot? {
     val context = LocalContext.current
@@ -402,28 +441,68 @@ private fun rememberPreviewSnapshot(): WidgetSnapshot? {
     }
     return produceState<WidgetSnapshot?>(initialValue = null, tick) {
         value = runCatching {
+            val semester = repo.semester.first()
+            val slots = repo.timeSlots.first()
+            val courses = repo.courses.first()
+            val prefs = repo.displayPrefs.first()
+            val today = LocalDate.now()
+            val now = LocalTimeLike.now()
+            val state = buildTodayState(semester, slots, courses, today, now)
+            val week = if (state.inTerm) state.week else 1
+            val highlight = state.focus?.day
+                ?: state.tomorrowDay.takeIf { state.tomorrowVisible }
             buildWidgetSnapshot(
-                buildTodayState(
-                    semester = repo.semester.first(),
-                    slots = repo.timeSlots.first(),
-                    courses = repo.courses.first(),
-                    today = LocalDate.now(),
-                    now = LocalTimeLike.now(),
+                state,
+                buildWidgetWeek(
+                    courses = courses,
+                    week = week,
+                    showSaturday = prefs.showSaturday,
+                    showSunday = prefs.showSunday,
+                    filter = prefs.courseFilter,
+                    highlightDay = highlight,
+                    slots = slots,
+                    now = now,
+                    markNow = state.focus != null,
+                    nowDay = state.focus?.let { state.day },
                 ),
             )
         }.getOrNull()
     }.value
 }
 
-/** 迷你预览：按条目比例缩画真实数据；课表为空时给占位文案。 */
+/** 一行预览：缩略图 + 名称 + 说明（不是可添加条目，纯形态参考）。 */
 @Composable
-private fun PreviewTile(size: WidgetSize) {
+private fun WidgetPreviewRow(size: WidgetPreviewSize, caption: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        PreviewTile(size)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = size.label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = caption,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 迷你预览：按该档实测 dp 走同一套 [widgetMetricsFor] 分档；课表为空时给占位文案。 */
+@Composable
+private fun PreviewTile(size: WidgetPreviewSize) {
     val snapshot = rememberPreviewSnapshot()
     val (w, h) = when (size) {
-        WidgetSize.Small -> 84.dp to 84.dp
-        WidgetSize.Tall -> 64.dp to 128.dp
-        WidgetSize.Wide -> 116.dp to 58.dp
-        WidgetSize.Large -> 128.dp to 128.dp
+        WidgetPreviewSize.Small -> 84.dp to 84.dp
+        WidgetPreviewSize.Wide -> 116.dp to 58.dp
+        WidgetPreviewSize.Tall -> 58.dp to 116.dp
+        WidgetPreviewSize.Large -> 128.dp to 128.dp
     }
     Box(
         modifier = Modifier
@@ -433,7 +512,7 @@ private fun PreviewTile(size: WidgetSize) {
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
             .padding(7.dp),
     ) {
-        val model = snapshot?.forSize(size)
+        val model = snapshot?.forSize(widgetMetricsFor(size.widthDp, size.heightDp))
         if (model == null) {
             Text(
                 text = "课表\n为空",
@@ -443,33 +522,91 @@ private fun PreviewTile(size: WidgetSize) {
             )
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                if (size.showHeader) {
-                    Text(
-                        text = model.header,
-                        fontSize = 7.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                PreviewFocus(model.focus)
-                model.rows.take(2).forEach { row ->
-                    PreviewRow(row.colorIndex, row.name, row.clock)
-                }
+                Text(
+                    text = model.header,
+                    fontSize = 7.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                PreviewBody(model)
             }
         }
     }
 }
 
 @Composable
-private fun PreviewFocus(focus: edu.jxslu.schedule.ui.widget.WidgetFocus) {
+private fun PreviewBody(model: WidgetModel) {
+    // 周网格档：画一个极简的 7×5 网格示意（真实网格在 128dp 缩略图里画不出可读信息，
+    // 这里只表达「大尺寸会给周课表」这件事；实际效果以桌面为准）
+    val week = model.week
+    if (week != null) {
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                week.days.forEach { day ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(6.dp)
+                            .background(
+                                if (day == week.highlightDay) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
+                                },
+                            ),
+                    ) {}
+                }
+            }
+            repeat(4) { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                    week.days.forEach { day ->
+                        val hasCourse = week.blocks.any {
+                            it.day == day && row == (it.startSection - 1) / 3
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(7.dp)
+                                .background(
+                                    if (hasCourse) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.06f)
+                                    },
+                                ),
+                        ) {}
+                    }
+                }
+            }
+        }
+        return
+    }
+    PreviewFocus(model.focus)
+    // 明日接棒时列表标题也画出来（正是「不留空白」的落点）
+    model.listTitle?.let { title ->
+        Text(
+            text = title,
+            fontSize = 6.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    model.rows.take(2).forEach { row ->
+        PreviewRow(row.colorIndex, row.name, row.clock)
+    }
+}
+
+@Composable
+private fun PreviewFocus(focus: WidgetFocus) {
     when (focus) {
-        is edu.jxslu.schedule.ui.widget.WidgetFocus.Course -> {
+        is WidgetFocus.Course -> {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
-                    .background(edu.jxslu.schedule.ui.common.courseColor(focus.colorIndex).copy(alpha = 0.16f))
+                    .background(courseColor(focus.colorIndex).copy(alpha = 0.16f))
                     .padding(horizontal = 4.dp, vertical = 2.dp),
             ) {
                 Column {
@@ -478,7 +615,7 @@ private fun PreviewFocus(focus: edu.jxslu.schedule.ui.widget.WidgetFocus) {
                         fontSize = 6.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = edu.jxslu.schedule.ui.common.courseColor(focus.colorIndex),
+                        color = courseColor(focus.colorIndex),
                     )
                     Text(
                         text = focus.name,
@@ -491,7 +628,7 @@ private fun PreviewFocus(focus: edu.jxslu.schedule.ui.widget.WidgetFocus) {
             }
         }
 
-        is edu.jxslu.schedule.ui.widget.WidgetFocus.Idle -> Text(
+        is WidgetFocus.Idle -> Text(
             text = focus.title,
             fontSize = 8.sp,
             maxLines = 1,
@@ -513,7 +650,7 @@ private fun PreviewRow(colorIndex: Int, name: String, clock: String) {
             modifier = Modifier
                 .weight(1f)
                 .clip(RoundedCornerShape(4.dp))
-                .background(edu.jxslu.schedule.ui.common.courseColor(colorIndex).copy(alpha = 0.16f))
+                .background(courseColor(colorIndex).copy(alpha = 0.16f))
                 .padding(horizontal = 3.dp, vertical = 1.dp),
         ) {
             Text(
@@ -538,7 +675,8 @@ private fun IntroDialog(
         title = { Text("把课表放上桌面") },
         text = {
             Text(
-                text = "提供三种尺寸：2×2 / 4×2 只看下一节（带日期），4×4 完整今日与明日预告。\n\n" +
+                text = "一个组件，尺寸随意：2×2 看正在上和下一节，4×2 多几节，拖到 4×4 " +
+                    "自动变成本周课表。\n\n" +
                     "小组件在上下课时刻自动更新。若希望刷新更及时，可在页面下方开启" +
                     "「忽略电池优化」与「允许自启动」（可选，不开也能用）。",
                 style = MaterialTheme.typography.bodyMedium,
@@ -546,7 +684,7 @@ private fun IntroDialog(
         },
         confirmButton = {
             if (canPin) {
-                TextButton(onClick = onAdd) { Text("现在添加 4×2") }
+                TextButton(onClick = onAdd) { Text("现在添加") }
             } else {
                 TextButton(onClick = onDismiss) { Text("知道了") }
             }

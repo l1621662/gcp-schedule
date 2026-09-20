@@ -1,5 +1,6 @@
 package edu.jxslu.schedule
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,7 +19,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,16 +50,44 @@ import me.rerere.hugeicons.stroke.Settings01
 import me.rerere.hugeicons.HugeIcons
 
 class MainActivity : ComponentActivity() {
+    /**
+     * 小组件网格区点击带来的目标 Tab（DESIGN §3.6）：`Intent` extra [EXTRA_ROUTE]。
+     *
+     * 用 `mutableStateOf` 承接：实例复用（`SINGLE_TOP`）时在 [onNewIntent] 里更新，
+     * 组合读 State 后 `LaunchedEffect` 跳转并把值消费掉（置空），
+     * 免得用户手动切走后又被弹回课表。
+     *
+     * **只在首次创建时读 Intent**：`savedInstanceState != null` 说明是转屏/重建，
+     * 此时 Intent 还是上次那份，重读会把用户从当前 Tab 再拽回课表（而 extra 还在，
+     * `onNewIntent` 那条消费路径没走过）。重建后的 Tab 由 NavController 自身恢复。
+     */
+    private val pendingRoute = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) {
+            pendingRoute.value = intent?.getStringExtra(EXTRA_ROUTE)
+        }
         enableEdgeToEdge()
         setContent {
             JuwRoot {
-                JuwApp()
+                JuwApp(pendingRoute = pendingRoute)
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingRoute.value = intent.getStringExtra(EXTRA_ROUTE)
+    }
 }
+
+/** 小组件传来的目标 Tab 的 extra 键；只在「网格区点击」时带上（整卡点击不带，落今日页）。 */
+internal const val EXTRA_ROUTE = "edu.jxslu.schedule.extra.ROUTE"
+
+/** [EXTRA_ROUTE] 的取值：课表 Tab。 */
+internal const val ROUTE_WEEK = "week"
 
 /**
  * 主题在根上解析：深浅色由显示偏好里的 [ThemeMode] 决定（默认跟随系统），
@@ -93,10 +125,24 @@ private fun tabEnter(): EnterTransition = fadeIn(tween(180))
 private fun tabExit(): ExitTransition = fadeOut(tween(180))
 
 @Composable
-fun JuwApp() {
+fun JuwApp(pendingRoute: MutableState<String?>? = null) {
     val context = LocalContext.current
     val navController = rememberNavController()
     val haptics = rememberAppHaptics()
+
+    // 小组件网格区点击 → 切到课表 Tab（DESIGN §3.6）。跳转后消费掉 extra，
+    // 否则每次重组/返回都会把用户弹回课表。
+    val route = pendingRoute?.value
+    LaunchedEffect(route) {
+        if (route == ROUTE_WEEK) {
+            navController.navigate(Routes.WEEK) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+            pendingRoute.value = null
+        }
+    }
 
     // 「我的 → 显示设置」的跨 Tab 触发：显示设置只有一个形态（课表页覆盖弹层），
     // 从「我的」发起时切到课表 Tab，并把这个事件喂给 WeekScreen 弹出与眼睛图标相同的面板。

@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -137,6 +138,8 @@ fun ReminderSettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
+            // 与其余设置子页同口径：分区卡之间留 12dp（漏了会三张卡紧贴）
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SettingsSection(
                 title = "上课提醒",

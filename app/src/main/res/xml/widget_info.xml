@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  课表小组件（DESIGN §3.6）：**单条目**，尺寸自适应（2026-09-20 改版）。
+
+  默认 4×2 横条（焦点卡信息量最舒服）；最小 2×2、最大 5×5——用户可自由拖动改大小，
+  内容随实测尺寸切换形态（紧凑 / 列表 / 周网格），所以目录里不再列多种尺寸。
+
+  2026-09-19 前的三条目（2×2 / 4×2 / 4×4 各一份 xml）已删：三者都能拖动且内容随尺寸
+  重复，选择器里看着像三个一样的东西，用户明确要求合并。
+
+  minWidth/minHeight 是 Android 11 及以下的回退尺寸（按格位取整），与
+  targetCellWidth/Height 的口径保持一致（250dp ≈ 4 格、110dp ≈ 2 格，与旧 4×2 条目同值）；
+  两套都给，覆盖各版本 ROM。maxResize 放到 5 格：大屏/平板可拖更大
+  （周网格档 230dp 起，5×5 ≈ 440dp 也放得下）。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:maxResizeWidth="440dp"
+    android:maxResizeHeight="440dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0"
+    android:description="@string/widget_description"
+    android:previewImage="@mipmap/ic_launcher"
+    android:initialLayout="@layout/glance_default_loading_layout" />
