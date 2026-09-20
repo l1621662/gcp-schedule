@@ -16,6 +16,8 @@ class JuwApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 进程级 context 注入（Graph.appContext）：后台协程落盘等场景免持 Activity 引用
+        Graph.contextProvider = { this }
         val repo = Graph.repository(this)
         appScope.launch {
             // 仅保证节次与学期默认值；课表默认空，由教务导入

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -149,7 +150,8 @@ fun TweakDetectScreen(
                             )
                         }
                         if (busy) {
-                            CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                            // size 而非 height：height-only 约束下 40×40 的圆环被画成 40×24 椭圆
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
                             Spacer(Modifier.width(12.dp))
                         }
                         Switch(

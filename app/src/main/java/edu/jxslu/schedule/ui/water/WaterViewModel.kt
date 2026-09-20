@@ -95,6 +95,30 @@ class WaterViewModel(private val repo: QiekjRepository) : ViewModel() {
         if (_uiState.value.loggedIn) {
             refreshBalance()
             refreshDevices()
+            runDiagReplay()
+        }
+    }
+
+    /**
+     * 【临时诊断，验证后删除】登录后对最新一笔历史订单回放 order/detail 原始响应，
+     * 存入普通 prefs 供开发侧 run-as 导出；只读接口，不产生新订单、不进日志。
+     */
+    private var diagContext: android.content.Context? = null
+
+    fun attachDiagContext(context: android.content.Context) {
+        diagContext = context.applicationContext
+        if (_uiState.value.loggedIn) runDiagReplay()
+    }
+
+    private fun runDiagReplay() {
+        val context = diagContext ?: return
+        val orderId = _uiState.value.orderHistory.firstOrNull()?.orderId ?: return
+        viewModelScope.launch {
+            runCatching { repo.rawOrderDetailResponse(orderId) }.onSuccess { raw ->
+                if (!raw.isNullOrBlank()) {
+                    repo.saveDiagPayload("diag_order_detail", raw, context)
+                }
+            }
         }
     }
 

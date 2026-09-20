@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import edu.jxslu.schedule.domain.CalendarSyncDefaults
 import edu.jxslu.schedule.domain.CourseFilter
 import edu.jxslu.schedule.domain.DetectFailurePolicy
+import edu.jxslu.schedule.domain.EbikeQr
 import edu.jxslu.schedule.domain.ReminderDefaults
 import edu.jxslu.schedule.domain.ScoreSortMode
 import edu.jxslu.schedule.domain.ShortcutItem
@@ -106,6 +107,21 @@ data class DisplayPrefs(
     val tapBlankToAdd: Boolean = false,
     /** 今日页开水卡片显示开关（DESIGN §3.3 底部固定区）。默认开；关 = 不展示（含未登录态）。 */
     val waterCardEnabled: Boolean = true,
+    /** 今日页共享单车卡显示开关（DESIGN §3.9）。默认开（用户要求入口常驻）。 */
+    val ebikeCardEnabled: Boolean = true,
+    /**
+     * 共享单车二维码生成后自动存相册（DESIGN §3.9）。**默认关**（用户拍板）——
+     * 相册里只留用户真的要的码，开了才会每次生成即落盘。
+     */
+    val ebikeAutoSave: Boolean = false,
+    /** 最近生成的共享单车车号（尾部 3 位，倒序去重，上限见 [EbikeQr.RECENT_LIMIT]）。 */
+    val ebikeRecentIds: List<String> = emptyList(),
+    /**
+     * 今日页校园卡付款码卡开关（DESIGN §3.10）。**默认关**：涉及凭证与资金等价物，
+     * 用户显式开启；关 = 整卡不占位（即「不在今日页显示」）。凭证本身不在这里——
+     * 存 `ykt_credentials.xml`（EncryptedSharedPreferences），有没有凭证读 store 即知。
+     */
+    val campusCardEnabled: Boolean = false,
 )
 
 /**
@@ -240,6 +256,29 @@ class DisplayPrefsStore(private val context: Context) {
         p[KEY_WATER_CARD_ENABLED] ?: true
     }.distinctUntilChanged()
 
+    /** 今日页共享单车卡开关（DESIGN §3.9）。全局项，默认开。 */
+    val ebikeCardEnabled: Flow<Boolean> = context.displayDataStore.data.map { p ->
+        p[KEY_EBIKE_CARD_ENABLED] ?: true
+    }.distinctUntilChanged()
+
+    /** 共享单车出码后自动存相册（DESIGN §3.9）。全局项，默认关（用户拍板）。 */
+    val ebikeAutoSave: Flow<Boolean> = context.displayDataStore.data.map { p ->
+        p[KEY_EBIKE_AUTO_SAVE] ?: false
+    }.distinctUntilChanged()
+
+    /**
+     * 最近共享单车车号（DESIGN §3.9）。键缺失/脏 JSON 回空列表——
+     * 历史只是回填入口，坏了不该打扰任何下游。
+     */
+    val ebikeRecentIds: Flow<List<String>> = context.displayDataStore.data.map { p ->
+        EbikeQr.decodeRecent(p[KEY_EBIKE_RECENT_IDS])
+    }.distinctUntilChanged()
+
+    /** 今日页校园卡付款码卡开关（DESIGN §3.10）。全局项，**默认关**（涉及凭证与资金）。 */
+    val campusCardEnabled: Flow<Boolean> = context.displayDataStore.data.map { p ->
+        p[KEY_CAMPUS_CARD_ENABLED] ?: false
+    }.distinctUntilChanged()
+
     /**
      * 快捷方式条目列表。键缺失或脏 JSON 回退内置预设（口径见 [Shortcuts.decode]）；
      * 读路径顺带做预设目标迁移（DESIGN §4.16：历史原值 → 当前预设，自定义不动）。
@@ -324,6 +363,33 @@ class DisplayPrefsStore(private val context: Context) {
     /** 今日页开水卡片开关（DESIGN §3.3）。 */
     suspend fun setWaterCardEnabled(value: Boolean) {
         context.displayDataStore.edit { it[KEY_WATER_CARD_ENABLED] = value }
+    }
+
+    /** 今日页共享单车卡开关（DESIGN §3.9）。 */
+    suspend fun setEbikeCardEnabled(value: Boolean) {
+        context.displayDataStore.edit { it[KEY_EBIKE_CARD_ENABLED] = value }
+    }
+
+    /** 今日页校园卡付款码卡开关（DESIGN §3.10）。 */
+    suspend fun setCampusCardEnabled(value: Boolean) {
+        context.displayDataStore.edit { it[KEY_CAMPUS_CARD_ENABLED] = value }
+    }
+
+    /** 共享单车出码自动存相册开关（DESIGN §3.9）。 */
+    suspend fun setEbikeAutoSave(value: Boolean) {
+        context.displayDataStore.edit { it[KEY_EBIKE_AUTO_SAVE] = value }
+    }
+
+    /**
+     * 最近共享单车车号统一写入口（DESIGN §3.9）：读-改-写整个 JSON，同值跳写
+     * （口径同 [updateShortcuts]）。历史是锦上添花的回填数据，写失败不影响出码本身。
+     */
+    suspend fun updateEbikeRecentIds(transform: (List<String>) -> List<String>) {
+        context.displayDataStore.edit { p ->
+            val current = EbikeQr.decodeRecent(p[KEY_EBIKE_RECENT_IDS])
+            val next = transform(current)
+            if (next != current) p[KEY_EBIKE_RECENT_IDS] = EbikeQr.encodeRecent(next)
+        }
     }
 
     /** 成绩页统计口径开关（DESIGN §4.15）。 */
@@ -534,6 +600,10 @@ class DisplayPrefsStore(private val context: Context) {
         val KEY_WIDGET_SETUP_SEEN = booleanPreferencesKey("widget_setup_seen")
         val KEY_SHORTCUTS_ENABLED = booleanPreferencesKey("shortcuts_enabled")
         val KEY_WATER_CARD_ENABLED = booleanPreferencesKey("water_card_enabled")
+        val KEY_EBIKE_CARD_ENABLED = booleanPreferencesKey("ebike_card_enabled")
+        val KEY_EBIKE_AUTO_SAVE = booleanPreferencesKey("ebike_auto_save")
+        val KEY_EBIKE_RECENT_IDS = stringPreferencesKey("ebike_recent_ids")
+        val KEY_CAMPUS_CARD_ENABLED = booleanPreferencesKey("campus_card_enabled")
         val KEY_SHORTCUTS_JSON = stringPreferencesKey("shortcuts_json")
         val KEY_SCORE_INCLUDE_FREE_ELECTIVES = booleanPreferencesKey("score_include_free_electives")
         val KEY_SCORE_GROUP_BY_YEAR = booleanPreferencesKey("score_group_by_year")

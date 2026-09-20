@@ -75,7 +75,7 @@ object Shortcuts {
         ),
         ShortcutItem(
             id = "preset_cainiao",
-            name = "菜鸟",
+            name = "菜鸟（无广启动）",
             pkg = "com.cainiao.wireless",
             activity = "com.cainiao.wireless.homepage.view.activity.HomePageActivity",
             presetIndex = 2,
@@ -92,7 +92,33 @@ object Shortcuts {
      * **维护契约**：改 [PRESET_SHORTCUTS] 里任何预设的目标或名称前，先把改动前的整张表
      * 追加到这里，否则老用户的「未编辑预设槽」无法自动升级到新目标。
      */
-    val PRESET_HISTORY: List<List<ShortcutItem>> = emptyList()
+    val PRESET_HISTORY: List<List<ShortcutItem>> = listOf(
+        // v1 → v2（2026-09-20）：菜鸟改名「菜鸟（无广启动）」，目标是让它自述「跳开屏广告」
+        // 这一差异（目标字段未变，但整表入史才能让未编辑槽自动换名）。
+        listOf(
+            ShortcutItem(
+                id = "preset_pdd",
+                name = "拼多多取件码",
+                uri = "pinduoduo://com.xunmeng.pinduoduo/mdkd/package",
+                pkg = "com.xunmeng.pinduoduo",
+                presetIndex = 0,
+            ),
+            ShortcutItem(
+                id = "preset_taobao",
+                name = "淘宝身份码",
+                uri = "https://pages-fast.m.taobao.com/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/identity-code",
+                pkg = "com.taobao.taobao",
+                presetIndex = 1,
+            ),
+            ShortcutItem(
+                id = "preset_cainiao",
+                name = "菜鸟",
+                pkg = "com.cainiao.wireless",
+                activity = "com.cainiao.wireless.homepage.view.activity.HomePageActivity",
+                presetIndex = 2,
+            ),
+        ),
+    )
 
     /**
      * 预设目标自动迁移：存储里的预设槽如果与某个历史版本的预设**目标字段完全一致**，

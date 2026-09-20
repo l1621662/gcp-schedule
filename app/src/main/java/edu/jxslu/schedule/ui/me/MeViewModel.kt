@@ -316,6 +316,9 @@ class MeViewModel(private val repo: ScheduleRepository) : ViewModel() {
     /** 今日页开水卡片开关（DESIGN §3.3 底部固定区）。 */
     fun setWaterCardEnabled(value: Boolean) = viewModelScope.launch { repo.setWaterCardEnabled(value) }
 
+    /** 今日页共享单车卡开关（DESIGN §3.9）。 */
+    fun setEbikeCardEnabled(value: Boolean) = viewModelScope.launch { repo.setEbikeCardEnabled(value) }
+
     /** 兼容入口：老调用点一次改两天。 */
     fun setShowWeekend(value: Boolean) = viewModelScope.launch { repo.setShowWeekend(value) }
 

@@ -91,6 +91,7 @@ import edu.jxslu.schedule.ui.common.GhostCourseCard
 import edu.jxslu.schedule.ui.common.GridCellStyle
 import edu.jxslu.schedule.ui.common.GridCourseCard
 import edu.jxslu.schedule.ui.common.ImportTargetDialogHost
+import edu.jxslu.schedule.ui.common.LoadingHint
 import edu.jxslu.schedule.ui.common.SingleSectionCard
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
 import edu.jxslu.schedule.ui.common.readTextFromUri
@@ -103,9 +104,7 @@ import edu.jxslu.schedule.ui.detect.detectOutcomeNotice
 import edu.jxslu.schedule.ui.me.DisplaySettingsContent
 import edu.jxslu.schedule.ui.me.MeViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowDown01
@@ -137,8 +136,6 @@ fun WeekScreen(
     onOpenTimetableManage: () -> Unit = {},
     /** 有未处理调课提醒时点导入图标直达「更新课表」（DESIGN §4.17） */
     onOpenScheduleUpdate: () -> Unit = {},
-    /** 外部请求打开显示设置（「我的 → 显示设置」跨 Tab 触发），与眼睛图标同一弹层 */
-    openDisplayRequests: Flow<Unit> = emptyFlow(),
     viewModel: WeekViewModel = viewModel(
         factory = WeekViewModel.Factory(Graph.repository(LocalContext.current)),
     ),
@@ -353,12 +350,6 @@ fun WeekScreen(
         }
     }
 
-    // 「我的 → 显示设置」跨 Tab 触发：跳到课表 Tab 后自动弹出与眼睛图标相同的覆盖面板。
-    // 用冷流 + collectLatest：每次跳 Tab 只发一个事件，重复点击也不会重复置位。
-    LaunchedEffect(openDisplayRequests) {
-        openDisplayRequests.collectLatest { displaySheetOpen = true }
-    }
-
     // ---- 网格字号换算（不依赖可用约束，提到 Scaffold 外）----
     // systemFontScale/gridScale 及各字号 sp 只由设置与列数决定，与 BoxWithConstraints 的
     // 可用宽高无关；上提到函数级是因为「表头高度」的动态下限 headerMinDp 要同时喂给两处：
@@ -437,10 +428,8 @@ fun WeekScreen(
                 val ps = pagerState
                 if (ps == null) {
                     // 初始化未完成：网格不渲染，避免 Pager 以第 1 周先出一帧（根因见 pagerState 注释）。
-                    // 但也不能纯白屏——给一个居中的进度指示（此前是无任何反馈的空白）
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.CircularProgressIndicator()
-                    }
+                    // 但也不能纯白屏——给水滴呼吸加载态（此前先是空白，后改裸 spinner）
+                    LoadingHint("正在准备课表", modifier = Modifier.fillMaxSize())
                 } else {
                     Row(Modifier.fillMaxSize()) {
                         TimeRail(

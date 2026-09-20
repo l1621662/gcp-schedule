@@ -231,6 +231,13 @@ class ScheduleRepository(
         val waterCard: Boolean,
     )
 
+    /** 共享单车相关偏好的收拢切片（DESIGN §3.9；combine 参数上限的同款处理）。 */
+    private data class EbikePrefs(
+        val cardEnabled: Boolean,
+        val autoSave: Boolean,
+        val recentIds: List<String>,
+    )
+
     // ------------------------------------------------------------------
     // 课表清单与当前课表
     // ------------------------------------------------------------------
@@ -285,8 +292,16 @@ class ScheduleRepository(
         ) { theme, dynamicColor, haptics, waterDouble, waterCard ->
             GlobalPrefs(theme, dynamicColor, haptics, waterDouble, waterCard)
         },
+        // 共享单车切片（DESIGN §3.9）：三个流合成一层，再并入最外层 combine
+        combine(
+            prefs.ebikeCardEnabled,
+            prefs.ebikeAutoSave,
+            prefs.ebikeRecentIds,
+            ::EbikePrefs,
+        ),
+        prefs.campusCardEnabled,
         prefs.viewPrefs,
-    ) { global, p ->
+    ) { global, ebike, campusCard, p ->
         // 夹取沿用旧 DataStore 读路径的防线：旧数据/手改数据超出收紧后的滑块范围会让 Slider 抛异常
         DisplayPrefs(
             themeMode = global.theme,
@@ -294,6 +309,10 @@ class ScheduleRepository(
             hapticsEnabled = global.haptics,
             waterRequireDoubleClick = global.waterDouble,
             waterCardEnabled = global.waterCard,
+            ebikeCardEnabled = ebike.cardEnabled,
+            ebikeAutoSave = ebike.autoSave,
+            ebikeRecentIds = ebike.recentIds,
+            campusCardEnabled = campusCard,
             // 遗留单开关也一并透出，与实际存储保持一致，免得读了它的人拿到陈旧值。
             showWeekend = p.showSaturday && p.showSunday,
             showSaturday = p.showSaturday,
@@ -343,6 +362,12 @@ class ScheduleRepository(
 
     /** 今日页开水卡片开关（DESIGN §3.3 底部固定区）。 */
     suspend fun setWaterCardEnabled(value: Boolean) = prefs.setWaterCardEnabled(value)
+
+    /** 今日页共享单车卡开关（DESIGN §3.9）。 */
+    suspend fun setEbikeCardEnabled(value: Boolean) = prefs.setEbikeCardEnabled(value)
+
+    /** 今日页校园卡付款码卡开关（DESIGN §3.10）。凭证的写/清走 YktCredentialStore，不在这里。 */
+    suspend fun setCampusCardEnabled(value: Boolean) = prefs.setCampusCardEnabled(value)
 
     suspend fun updateShortcuts(transform: (List<ShortcutItem>) -> List<ShortcutItem>) =
         prefs.updateShortcuts(transform)

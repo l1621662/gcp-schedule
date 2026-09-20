@@ -131,6 +131,10 @@ dependencies {
         isTransitive = false
     }
 
+    // 共享单车出码（DESIGN §3.9 / §4.18）：纯 Java 单 jar，无传递依赖；
+    // 只用 core 的 QRCodeWriter，不引 zxing 的 Android 侧模块
+    implementation("com.google.zxing:core:3.5.3")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }

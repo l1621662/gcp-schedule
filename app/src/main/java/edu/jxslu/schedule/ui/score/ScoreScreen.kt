@@ -63,6 +63,7 @@ import edu.jxslu.schedule.domain.ScoreSortMode
 import edu.jxslu.schedule.domain.TermSummary
 import edu.jxslu.schedule.domain.YearGroup
 import edu.jxslu.schedule.ui.common.EmptyHint
+import edu.jxslu.schedule.ui.common.LoadingHint
 import edu.jxslu.schedule.ui.jwvw.JwImportMode
 import kotlinx.coroutines.launch
 
@@ -88,9 +89,16 @@ fun ScoreScreen(onBack: () -> Unit) {
     val scoreRepo = remember { Graph.scoreRepository(context) }
     val scope = rememberCoroutineScope()
 
-    val terms by scoreRepo.observeTerms().collectAsState(initial = emptyList())
-    // 全量按学期分组：按学年视图与「全部」档要跨学期聚合，一份全量数据共用
-    val allByTerm by scoreRepo.observeAllGroupedByTerm().collectAsState(initial = emptyMap())
+    // null = Room 流首帧未到（未就绪），非 null 空列表 = 确实没有成绩。
+    // 不区分的话，首帧会先渲染「还没有成绩」空态再跳真实数据（与今日页 ready
+    // 门闸同根因的闪屏，今日页修在 ViewModel，这里数据流是冷流直订，收口在 UI 侧）
+    val termsState by scoreRepo.observeTerms()
+        .collectAsState(initial = null)
+    val allByTermState by scoreRepo.observeAllGroupedByTerm()
+        .collectAsState(initial = null)
+    val ready = termsState != null && allByTermState != null
+    val terms = termsState.orEmpty()
+    val allByTerm = allByTermState.orEmpty()
     val yearGroups = remember(allByTerm) { ScoreGroups.group(allByTerm.keys.toList()) }
 
     // 分组模式/排序/任选课口径持久化在 DataStore（DESIGN §4.15）：重进页面不重置；
@@ -177,6 +185,17 @@ fun ScoreScreen(onBack: () -> Unit) {
         },
     ) { padding ->
         when {
+            // 未就绪：水滴呼吸加载态，避免「还没有成绩」空态闪现
+            !ready -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    LoadingHint("正在读取成绩")
+                }
+            }
             terms.isEmpty() -> {
                 Column(
                     modifier = Modifier

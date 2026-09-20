@@ -50,19 +50,26 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import edu.jxslu.schedule.Graph
+import edu.jxslu.schedule.data.prefs.DisplayPrefs
 import edu.jxslu.schedule.data.qiekj.DeviceItem
 import edu.jxslu.schedule.data.qiekj.OrderHistoryItem
 import edu.jxslu.schedule.domain.UnlockFlowState
 import edu.jxslu.schedule.domain.calculateActualCost
 import edu.jxslu.schedule.ui.common.AppNoticeVisuals
 import edu.jxslu.schedule.ui.common.AppSnackbarHost
+import edu.jxslu.schedule.ui.common.SettingChoiceRow
+import edu.jxslu.schedule.ui.common.SettingSwitchRow
+import edu.jxslu.schedule.ui.common.SettingsSection
 import edu.jxslu.schedule.ui.common.WaterUnlockButton
+import edu.jxslu.schedule.ui.common.rememberAppHaptics
+import edu.jxslu.schedule.ui.me.MeViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowLeft01
 import me.rerere.hugeicons.stroke.Droplet
+import me.rerere.hugeicons.stroke.GlassWater
 import me.rerere.hugeicons.stroke.History
 import me.rerere.hugeicons.stroke.Logout04
 import me.rerere.hugeicons.stroke.Refresh
@@ -75,6 +82,10 @@ private val DATE_FORMAT = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
  * 交互：未登录 → 登录卡（验证码 / Token 两种）；已登录 → 余额行、设备选择、
  * 大按钮开水、状态原地切换（Idle/进行中/成功/失败）、订单快照列表。
  * 风格克制：无大圆角卡片、无 elevation，错误一行主因 + 详情弹窗。
+ *
+ * 2026-09-20 起「开水设置」子页并入本页尾部（`WaterSettingsSection`，登录与
+ * 未登录两态共用）：**显示开水卡片**开关 + **点击方式**（单击/双击）。
+ * 「我的」侧入口名「胖乖生活一键开水」，不再有独立设置页。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,9 +94,17 @@ fun WaterScreen(
     viewModel: WaterViewModel = viewModel(
         factory = WaterViewModel.Factory(Graph.qiekj(LocalContext.current)),
     ),
+    // 开水卡显示与点击方式的读写（原 WaterSettingsScreen 的 ViewModel，2026-09-20 并入）
+    prefsViewModel: MeViewModel = viewModel(
+        factory = MeViewModel.Factory(Graph.repository(LocalContext.current)),
+    ),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val prefsState by prefsViewModel.uiState.collectAsStateWithLifecycle()
+    val haptics = rememberAppHaptics()
     val context = LocalContext.current
+    // 【临时诊断，验证后删除】给 ViewModel 挂 context 以便回放原始账单
+    LaunchedEffect(Unit) { viewModel.attachDiagContext(context) }
     var showDeviceSheet by remember { mutableStateOf(false) }
     var detailItem by remember { mutableStateOf<Any?>(null) }
     val snackbar = remember { SnackbarHostState() }
@@ -135,6 +154,13 @@ fun WaterScreen(
             ) {
                 LoginSection(state = state, viewModel = viewModel)
                 Spacer(Modifier.height(24.dp))
+                WaterSettingsSection(
+                    prefs = prefsState.displayPrefs,
+                    onSetCardEnabled = prefsViewModel::setWaterCardEnabled,
+                    onSetRequireDoubleClick = prefsViewModel::setWaterRequireDoubleClick,
+                    onToggleHaptics = { haptics.toggle() },
+                )
+                Spacer(Modifier.height(16.dp))
                 Disclaimer()
             }
         } else {
@@ -225,6 +251,12 @@ fun WaterScreen(
                 )
 
                 Spacer(Modifier.height(8.dp))
+                WaterSettingsSection(
+                    prefs = prefsState.displayPrefs,
+                    onSetCardEnabled = prefsViewModel::setWaterCardEnabled,
+                    onSetRequireDoubleClick = prefsViewModel::setWaterRequireDoubleClick,
+                    onToggleHaptics = { haptics.toggle() },
+                )
                 Disclaimer()
                 Spacer(Modifier.height(24.dp))
             }
@@ -319,6 +351,43 @@ private fun LoginSection(state: WaterUiState, viewModel: WaterViewModel) {
             enabled = !state.tokenLoggingIn && state.tokenLoginInput.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(48.dp),
         ) { Text("Token 登录") }
+    }
+}
+
+/**
+ * 开水设置区（原「开水设置」子页主体，2026-09-20 并入本页，DESIGN §3.4）。
+ * 放在页面尾部，登录与未登录两态共用——均不依赖登录态：未登录也能关今日页
+ * 卡片显示（此时展示未登录态卡片）与调点击方式；登录/退出在上面完成，本区不涉及 token。
+ */
+@Composable
+private fun WaterSettingsSection(
+    prefs: DisplayPrefs,
+    onSetCardEnabled: (Boolean) -> Unit,
+    onSetRequireDoubleClick: (Boolean) -> Unit,
+    onToggleHaptics: () -> Unit,
+) {
+    SettingsSection(
+        title = "开水卡设置",
+        subtitle = "今日页开水卡片的行为，与登录状态无关。",
+    ) {
+        SettingSwitchRow(
+            title = "显示开水卡片",
+            subtitle = "关闭后今日页底部不再显示开水入口",
+            checked = prefs.waterCardEnabled,
+            onCheckedChange = onSetCardEnabled,
+            icon = HugeIcons.Droplet,
+        )
+        SettingChoiceRow(
+            title = "点击方式",
+            subtitle = "双击确认防误触，对今日页开水卡与上方「开水」大按钮生效",
+            icon = HugeIcons.GlassWater,
+            options = listOf("单击", "双击"),
+            selectedIndex = if (prefs.waterRequireDoubleClick) 1 else 0,
+            onSelect = { index ->
+                onToggleHaptics()
+                onSetRequireDoubleClick(index == 1)
+            },
+        )
     }
 }
 

@@ -46,8 +46,8 @@ import me.rerere.hugeicons.stroke.ArrowDown01
  * 显示设置的选项面板主体（字号 / 布局尺寸 / 格子样式 / 内容与开关）。
  *
  * 唯一宿主是课表页的**覆盖弹层**（WeekScreen 的 DisplaySettingsOverlay，
- * 「我的 → 显示设置」跨 Tab 触发同一弹层）：真实课表在面板上方保持可见，
- * 所有改动在真实网格上即时生效。
+ * 入口 = 课表页顶栏眼睛图标；「我的」侧跨 Tab 触发已于 2026-09-20 删除）：
+ * 真实课表在面板上方保持可见，所有改动在真实网格上即时生效。
  *
  * [headerMinDp]：表头高度滑块的动态下限（随日期字号，见 minHeaderHeightForDateFont）。
  * 与课表布局的渲染兜底取同一个值——滑块从有效下限起步，拖到底也有可见效果，

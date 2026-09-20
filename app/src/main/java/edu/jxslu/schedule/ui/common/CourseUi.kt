@@ -386,34 +386,6 @@ fun SingleSectionCard(
     }
 }
 
-@Composable
-fun EmptyHint(
-    title: String,
-    body: String,
-    actionLabel: String? = null,
-    onAction: (() -> Unit)? = null,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            body,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        )
-        if (actionLabel != null && onAction != null) {
-            Spacer(modifier = Modifier.height(12.dp))
-            TextButton(onClick = onAction) { Text(actionLabel) }
-        }
-    }
-}
-
 /**
  * 课程信息表单。星期/节次是**滚轮选择**而不是裸数字输入框：
  * 「星期填 9」「节次填 99」这类脏输入在数字框里畅通无阻，滚轮从根上取缔；

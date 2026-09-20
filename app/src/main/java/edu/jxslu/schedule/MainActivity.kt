@@ -42,8 +42,6 @@ import edu.jxslu.schedule.ui.today.TodayScreen
 import edu.jxslu.schedule.ui.water.WaterViewModel
 import edu.jxslu.schedule.ui.week.WeekScreen
 import edu.jxslu.schedule.domain.ThemeMode
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.receiveAsFlow
 import me.rerere.hugeicons.stroke.Book01
 import me.rerere.hugeicons.stroke.Calendar01
 import me.rerere.hugeicons.stroke.Settings01
@@ -144,25 +142,9 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
         }
     }
 
-    // 「我的 → 显示设置」的跨 Tab 触发：显示设置只有一个形态（课表页覆盖弹层），
-    // 从「我的」发起时切到课表 Tab，并把这个事件喂给 WeekScreen 弹出与眼睛图标相同的面板。
-    //
-    // 为什么用 Channel 而不是 SharedFlow：SharedFlow(replay=0) 在**尚无订阅者**时
-    // tryEmit 的值会被直接丢弃——navigate() 是异步的，WeekScreen 下一帧才进组合、
-    // LaunchedEffect 才开始收集，同步 tryEmit 必然抢跑，面板永远弹不出来。
-    // Channel 会把接收者出现前的发送缓冲住，消费后即清空（不会像 replay=1 那样
-    // 每次回到课表 Tab 都重弹一次旧事件）。
-    val displaySettingsRequests = remember { Channel<Unit>(Channel.BUFFERED) }
-    val openDisplaySettings = {
-        haptics.tap()
-        navController.navigate(Routes.WEEK) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
-        displaySettingsRequests.trySend(Unit)
-        Unit
-    }
+    // 「我的 → 显示设置」跨 Tab 触发已于 2026-09-20 删除（DESIGN §3.1）：
+    // 显示设置唯一入口 = 课表页顶栏眼睛图标，「我的」侧属重复入口，
+    // 对应的 Channel 链路（displaySettingsRequests → WeekScreen）一并移除。
 
     val tabs = listOf(
         BottomTab(Routes.TODAY, R.string.tab_today, HugeIcons.Calendar01),
@@ -235,6 +217,10 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     // 一键开水卡常显（未登录给未登录态，显示设置可关，DESIGN §3.3）；
                     // 登录态由 WaterViewModel 自带，外层不再按登录与否隐藏整卡
                     onOpenWater = { SubpageActivity.start(context, SubpageScreen.WATER) },
+                    // 共享单车出码页（DESIGN §3.9）：今日页卡片直达，独立窗口
+                    onOpenEbike = { SubpageActivity.start(context, SubpageScreen.EBIKE) },
+                    // 校园卡付款码页（DESIGN §3.10）：开关开时今日页卡片直达
+                    onOpenPayCode = { SubpageActivity.start(context, SubpageScreen.PAY_CODE) },
                     // 快捷方式网格：长按图标进设置页（null）；Snackbar「去设置」带失败条目
                     // id 直达该条目的编辑弹层（DESIGN §3.8 的就地修正闭环）
                     onOpenShortcuts = { focusItemId ->
@@ -257,10 +243,6 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     onOpenScheduleUpdate = {
                         SubpageActivity.start(context, SubpageScreen.SCHEDULE_UPDATE)
                     },
-                    // 「我的 → 显示设置」跨 Tab 触发，弹出的面板与眼睛图标相同
-                    // receiveAsFlow：WeekScreen 只需要消费事件；Channel 保证
-                    // 订阅者出现前的事件不丢（SharedFlow replay=0 会直接丢）
-                    openDisplayRequests = displaySettingsRequests.receiveAsFlow(),
                 )
             }
             composable(Routes.ME) {
@@ -278,9 +260,6 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     onOpenTimetableSettings = {
                         SubpageActivity.start(context, SubpageScreen.TIMETABLE_SETTINGS)
                     },
-                    // 显示设置 = 课表页覆盖弹层：跨 Tab 触发（见 displaySettingsRequests），
-                    // 不再是独立子页
-                    onOpenDisplaySettings = openDisplaySettings,
                     onOpenDataSettings = {
                         SubpageActivity.start(context, SubpageScreen.DATA_SETTINGS)
                     },
@@ -289,6 +268,9 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     },
                     onOpenTweakDetect = {
                         SubpageActivity.start(context, SubpageScreen.TWEAK_DETECT)
+                    },
+                    onOpenCampusCard = {
+                        SubpageActivity.start(context, SubpageScreen.CAMPUS_CARD_SETTINGS)
                     },
                     onOpenWidgetSettings = {
                         SubpageActivity.start(context, SubpageScreen.WIDGET_SETTINGS)
@@ -304,9 +286,6 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     },
                     onOpenWater = {
                         SubpageActivity.start(context, SubpageScreen.WATER)
-                    },
-                    onOpenWaterSettings = {
-                        SubpageActivity.start(context, SubpageScreen.WATER_SETTINGS)
                     },
                     waterLoggedIn = waterLoggedIn,
                 )

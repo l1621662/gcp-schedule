@@ -18,8 +18,9 @@ import edu.jxslu.schedule.domain.TimetablePrefs
         ScoreEntity::class,
         DetectBaselineEntity::class,
         DetectReportEntity::class,
+        YktTurnoverEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -31,6 +32,7 @@ abstract class JuwDatabase : RoomDatabase() {
     abstract fun scoreDao(): ScoreDao
     abstract fun detectBaselineDao(): DetectBaselineDao
     abstract fun detectReportDao(): DetectReportDao
+    abstract fun yktTurnoverDao(): YktTurnoverDao
 
     companion object {
 
@@ -172,6 +174,33 @@ abstract class JuwDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5 → v6：校园卡消费流水本地副本（DESIGN §4.19 L1–L5）。
+         * 新表 `ykt_turnovers`，orderId 主键（服务端订单号，同步去重键）；
+         * CREATE TABLE 非 destructive。个人消费记录非凭证，随云备份。
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS ykt_turnovers (" +
+                        "orderId TEXT NOT NULL PRIMARY KEY, " +
+                        "jndatetime INTEGER NOT NULL, " +
+                        "jndatetimeStr TEXT NOT NULL, " +
+                        "tranamtFen INTEGER NOT NULL, " +
+                        "income INTEGER NOT NULL, " +
+                        "turnoverType TEXT NOT NULL, " +
+                        "remark TEXT, " +
+                        "resume TEXT, " +
+                        "balanceAfterFen INTEGER, " +
+                        "locationName TEXT, " +
+                        "syncedAt INTEGER NOT NULL)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_ykt_turnovers_jndatetime ON ykt_turnovers(jndatetime)",
+                )
+            }
+        }
+
         @Volatile
         private var instance: JuwDatabase? = null
 
@@ -182,7 +211,7 @@ abstract class JuwDatabase : RoomDatabase() {
                     JuwDatabase::class.java,
                     "juw_schedule.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }

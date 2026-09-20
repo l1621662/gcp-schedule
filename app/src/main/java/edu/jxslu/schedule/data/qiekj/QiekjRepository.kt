@@ -28,6 +28,7 @@ class QiekjRepository(
     private val orderHistoryStore: QiekjOrderHistoryStore,
 ) {
     private val api: QiekjApi
+    private val apiClient: OkHttpClient
 
     init {
         // BASIC 级日志只打请求行不打 header，token/sign 不会进 Logcat（DESIGN 5 隐私要求）
@@ -39,6 +40,7 @@ class QiekjRepository(
             .addInterceptor(QiekjHeaderInterceptor { tokenStore.readToken() })
             .addInterceptor(logging)
             .build()
+        apiClient = client
         api = Retrofit.Builder()
             .baseUrl(QiekjApiConfig.BASE_URL)
             .client(client)
@@ -94,6 +96,28 @@ class QiekjRepository(
     }
 
     fun orderHistory(): List<OrderHistoryItem> = orderHistoryStore.list()
+
+    /**
+     * 【临时诊断，验证后删除】用历史 orderId 回放 order/detail，返回原始响应体并落本地诊断档。
+     * 只读接口，不产生新订单；用于排查「实付为0」时确认 promotionList 真实语义。
+     * 原始响应含订单号/金额，只落设备 prefs，不进日志、不进仓库。
+     */
+    suspend fun rawOrderDetailResponse(orderId: String): String? = withContext(Dispatchers.IO) {
+        val token = requireToken()
+        val form = okhttp3.FormBody.Builder().add("orderId", orderId).add("token", token).build()
+        val request = okhttp3.Request.Builder()
+            .url(QiekjApiConfig.BASE_URL + "order/detail")
+            .post(form)
+            .build()
+        apiClient.newCall(request).execute().use { it.body?.string() }
+    }
+
+    /** 【临时诊断，验证后删除】诊断结果落盘（普通 prefs，run-as 可导出）。 */
+    fun saveDiagPayload(key: String, value: String, context: android.content.Context) {
+        context.applicationContext
+            .getSharedPreferences("qiekj_diag", android.content.Context.MODE_PRIVATE)
+            .edit().putString(key, value).apply()
+    }
 
     // ── 开水全流程 ──
 

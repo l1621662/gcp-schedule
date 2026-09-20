@@ -29,7 +29,7 @@
 | AGP | **8.7.3** |
 | Kotlin | **2.1.21**（+ compose / serialization / KSP 同版本） |
 | Room | **2.7.1**（2.6 + Kotlin 2.1 会 KSP `unexpected jvm signature V`） |
-| Room DB | **v5**：v2 加 `courses.kind`（理论/实验），v3 加多课表（`timetables` 表 + `courses.timetableId`），v4 加成绩表 `scores`，v5 加调课检测（`detect_baselines`/`detect_reports`）。逐级 `ALTER TABLE`/`CREATE TABLE`，**禁止**改 destructive |
+| Room DB | **v6**：v2 加 `courses.kind`（理论/实验），v3 加多课表（`timetables` 表 + `courses.timetableId`），v4 加成绩表 `scores`，v5 加调课检测（`detect_baselines`/`detect_reports`），v6 加一卡通流水（`ykt_turnovers`，orderId 主键 + jndatetime 索引——实体 `@Index` 必须与迁移 `CREATE INDEX` 对齐，漏声明会迁移校验崩溃）。逐级 `ALTER TABLE`/`CREATE TABLE`，**禁止**改 destructive |
 | 作息表 | **11 小节**（每节 40 分钟，大节内 5 分钟、大节之间 20 分钟换教室），见 DESIGN 3.5 |
 | 课表网格 | 行号 = **小节号 1–11**（不是大节号）；`Course.startSection/endSection` 也是小节号 |
 | HugeIcons | `com.github.rikkahub:hugeicons-compose:1.4`（**JitPack**，**`isTransitive = false`**） |
@@ -64,8 +64,11 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
 `ScoreGroupsTest`（成绩学年分组与年级标签）、
 `ShortcutsTest`（快捷方式：拉起口径/表单校验/预设表/JSON 兜底/列表操作）、
 `ScheduleDetectTest`（调课检测三方合并：归因/冲突/调课不误报/序列化 roundtrip）、
-`JwHttpSessionTest`（检测登录链路：重定向解析参数顺序、IPv4 优先 DNS）
-等 32 个测试类。
+`JwHttpSessionTest`（检测登录链路：重定向解析参数顺序、IPv4 优先 DNS）、
+`EbikeQrTest`（共享单车出码：URL 拼装/车号校验/BitMatrix 参数/最近车号序列化）、
+`YktKeyboardTest`（校园卡键盘：字形 MD5 表/双射硬校验/密文构造/协议自检）、
+`YktModelsTest`（一卡通响应解析：BOM 剥离/错误码/CARD 账户提取）
+等 35 个测试类。
 
 行为约定（改之前先读）：
 - 教务页星期只能从课程所在 `<td>` 的**列序**推（第 0 列是节次标签）。`li.qz-hasCourse-N` 恒为 1，不能当星期来源。
@@ -164,7 +167,9 @@ data/prefs/      DataStore 显示偏好（含 slotSchemaVersion）
 data/jw/         JwUrls + QiangzhiScheduleParser（理论 xskb）+ SyjxScheduleParser（实验 syjx）
                  + ExamScheduleParser / ScoreParser（考试·成绩 = 同源 fetch JSON，非 DOM 解析）
 data/qiekj/      胖乖生活 API（登录/开水/余额/订单）
-ui/today|week|me|water|jwvw|score|timetable|common|theme|widget
+data/ykt/        一卡通（新中新慧新e校）登录与付款码（DESIGN §4.19；凭证 ykt_credentials.xml
+                 已排除备份；token 仅内存；无日志拦截器；8002/8003 验证码绝不重试）
+ui/today|week|me|water|campus|jwvw|score|timetable|common|theme|widget|ebike
 Graph.kt         单例 Repository
 JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件冷启动刷新
 ```
@@ -187,6 +192,9 @@ JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件�
 - 参考 `F:\light-life-v3.0`；Base `https://userapi.qiekj.com/`
 - 只做：登录、开水、余额、订单；签到默认关；禁止刷积分
 - 实现在 `data/qiekj/` + `ui/water/`；Token 走 EncryptedSharedPreferences，禁止进日志
+- 一卡通付款码（DESIGN §3.10/§4.19）：密码字段 = 安全键盘密文（字形 MD5 表一次替换）+ `$1$` + uuid；
+  **未知字形/非双射/样板自检不过 = 立即报错不猜**；登录密码仅数字（键盘只映射 0-9）；
+  token 只存内存不落盘；付款码不进日志/剪贴板/相册；凭证交互照 `TweakDetectScreen`（开启先真实验证、关闭即清除）
   调用链（11 步顺序不可乱）见 DESIGN §4.10
 
 ## 沟通与 DoD

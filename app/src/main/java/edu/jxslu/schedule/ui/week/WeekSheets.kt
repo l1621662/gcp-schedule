@@ -50,7 +50,7 @@ import me.rerere.hugeicons.stroke.CalendarSync
  * 根因：此前周次网格和全部显示开关挤在同一个弹层里，顶栏胶囊与眼睛图标又指向同一个入口——
  * 用户想改一个显示选项也得从周次弹层里翻。现在拆开：胶囊（周次区）→ 本弹层；
  * 眼睛图标 → 课表页内覆盖面板（WeekScreen.DisplaySettingsOverlay，复用 DisplaySettingsContent）。
- * 「我的 → 显示设置」跨 Tab 触发同一个覆盖面板（见 MainActivity），显示设置只有一个形态。
+ * 显示设置只有一个形态、一个入口（眼睛图标；「我的」侧跨 Tab 触发 2026-09-20 已删）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
