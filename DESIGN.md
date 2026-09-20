@@ -528,6 +528,7 @@ URL Link/scheme 需运营方 access_token，本项目个人开发者两条都不
 | 车号输入 | 尾部 3 位数字；完整车号模板 `100000` 内置于 `EbikeQr`（单测口径），拼 `?id=100000NNN`。3 位非数字/为空禁止生成，行内提示 |
 | 生成 | 点击生成 720×720px QR（`zxing:core`，容错 M，白边 1 模块），**展示区直接出码** |
 | 自动保存 | 生成即存系统相册（`Pictures/水贝贝`，JPEG 90），**开关 `ebikeAutoSave` 默认关**（用户拍板）——相册里只留用户真的要的码。开关放码下方一行；保存成功/失败走页内 `InlineNoticeRow`（弹层窗口纪律，Snackbar 不穿透二级页窗口） |
+| 扫完即焚 | 保存到相册的码在**回到 App 后自动删除**，**开关 `ebikeBurnAfterScan` 默认开**（保存码是扫码一次性耗材，不留痕）。机制：保存成功记录待焚毁 key（`ebikePendingDelete` stringSet，持久化——进程被杀恢复后仍能删）；页面 ON_RESUME 时 `EbikeViewModel.burnPending()` 按 key 分流删除（29+ 自己 insert 的 MediaStore uri，owner 免权限；26–28 自己写的公共目录文件），删成功的移出记录、失败的保留重试。开关关 = 完全回到旧语义（不新增记录也不删残留）。出码页生成按钮点击同时收起键盘 |
 | 最近车号 | 最近 8 个生成过的车号 chips（DataStore 列表，倒序去重），点击回填；仅本地，不入 git |
 | 提示 | 「打开微信扫一扫」按钮 best-effort 发 `weixin://dl/scan`（**非官方 scheme**，可能被拒），失败走 `InlineNoticeRow` 引导手动扫；manifest `queries` 声明微信包可见性仅用于该探测 |
 | 提亮 | **不做**自动屏幕提亮（用户拍板） |
@@ -1569,13 +1570,23 @@ D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 �
   - `recentBikeIds(json: String?): List<String>` / `encodeRecentIds(...)` —
     最近车号列表的 JSON 序列化（倒序去重、上限 8），脏 JSON 回空列表。
 - `data/prefs`：`ebikeCardEnabled`（今日页卡开关，默认开）、`ebikeAutoSave`
-  （生成即存相册，**默认关**，用户拍板）、`ebikeRecentIds`（JSON 列表）；
-  经 `DisplayPrefs` 透出，走 `ScheduleRepository.displayPrefs` 既有合并链。
-- `ui/ebike/`：`EbikeViewModel`（生成/保存/历史）、`EbikeQrScreen`（输入 + 大码 +
-  自动保存开关 + 最近 chips + 微信扫一扫 best-effort）。落相册走 MediaStore
+  （生成即存相册，**默认关**，用户拍板）、`ebikeRecentIds`（JSON 列表）经
+  `ScheduleRepository.displayPrefs` 既有合并链透出；`ebikeBurnAfterScan`（扫完即焚，
+  **默认开**）、`ebikePendingDelete`（待焚毁 key 集合，stringSet）为出码页私有
+  **直接读写 store**，不进 DisplayPrefs 合并链（待删集合是高频翻搅的过程态，
+  不该进 UI 向快照；未来若其它页面要读焚毁开关再接线）。
+- `ui/ebike/`：`EbikeViewModel`（生成/保存/历史/焚毁）、`EbikeQrScreen`（输入 + 大码 +
+  自动保存开关 + 扫完即焚开关 + 最近 chips + 微信扫一扫 best-effort）。落相册走 MediaStore
   `Pictures/水贝贝`（API 29+ 免权限；26–28 需 `WRITE_EXTERNAL_STORAGE` 运行时申请）。
+- 扫完即焚（2026-09-20）：`EbikeQrBitmaps.saveToGallery` 成功返回 `SaveResult.Saved`
+  （附待焚毁 key：`m:` 前缀 MediaStore uri / `f:` 前缀文件路径，编码在 `EbikeQr` 纯 JVM 可测）；
+  保存方（手动或自动）按 `ebikeBurnAfterScan` 把 key 并入 `ebikePendingDelete`；
+  页面 ON_RESUME 触发 `EbikeViewModel.burnPending()`，逐 key `deletePending`
+  （29+ `ContentResolver.delete` 自己的 uri，26–28 `File.delete`），成功才移出记录，
+  失败保留下次重试；防重入 + 开关关闭时不删。
 - 依赖：`com.google.zxing:core`（单 jar 无传递）。
-- 测试：`EbikeQrTest`（URL 拼装/校验/BitMatrix 参数/历史序列化 roundtrip）。
+- 测试：`EbikeQrTest`（URL 拼装/校验/BitMatrix 参数/历史序列化 roundtrip/待焚毁 key
+  编码与解析/待焚毁集合合并上限）。
 
 ### 4.19 校园卡付款码（2026-09-20，P6；UI 规格见 §3.10，默认关闭）
 

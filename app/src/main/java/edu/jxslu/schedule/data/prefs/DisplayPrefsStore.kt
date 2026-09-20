@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import edu.jxslu.schedule.domain.CalendarSyncDefaults
 import edu.jxslu.schedule.domain.CourseFilter
@@ -114,6 +115,12 @@ data class DisplayPrefs(
      * 相册里只留用户真的要的码，开了才会每次生成即落盘。
      */
     val ebikeAutoSave: Boolean = false,
+    /**
+     * 扫完即焚（DESIGN §3.9）：保存过的码在用户回到 App 后自动从相册删除。
+     * **默认开**——保存码本就是"扫码"的一次性耗材，不留痕是预期行为；
+     * 关掉 = 完全回到旧语义（已记录的待删项保留不动，不再新增、也不删除）。
+     */
+    val ebikeBurnAfterScan: Boolean = true,
     /** 最近生成的共享单车车号（尾部 3 位，倒序去重，上限见 [EbikeQr.RECENT_LIMIT]）。 */
     val ebikeRecentIds: List<String> = emptyList(),
     /**
@@ -266,6 +273,16 @@ class DisplayPrefsStore(private val context: Context) {
         p[KEY_EBIKE_AUTO_SAVE] ?: false
     }.distinctUntilChanged()
 
+    /** 扫完即焚开关（DESIGN §3.9）。全局项，默认开。 */
+    val ebikeBurnAfterScan: Flow<Boolean> = context.displayDataStore.data.map { p ->
+        p[KEY_EBIKE_BURN_AFTER_SCAN] ?: true
+    }.distinctUntilChanged()
+
+    /** 扫完即焚的待删记录（本功能保存的二维码 key 集合，DESIGN §3.9）。 */
+    val ebikePendingDelete: Flow<Set<String>> = context.displayDataStore.data.map { p ->
+        p[KEY_EBIKE_PENDING_DELETE] ?: emptySet()
+    }
+
     /**
      * 最近共享单车车号（DESIGN §3.9）。键缺失/脏 JSON 回空列表——
      * 历史只是回填入口，坏了不该打扰任何下游。
@@ -378,6 +395,25 @@ class DisplayPrefsStore(private val context: Context) {
     /** 共享单车出码自动存相册开关（DESIGN §3.9）。 */
     suspend fun setEbikeAutoSave(value: Boolean) {
         context.displayDataStore.edit { it[KEY_EBIKE_AUTO_SAVE] = value }
+    }
+
+    /** 扫完即焚开关（DESIGN §3.9）。 */
+    suspend fun setEbikeBurnAfterScan(value: Boolean) {
+        context.displayDataStore.edit { it[KEY_EBIKE_BURN_AFTER_SCAN] = value }
+    }
+
+    /**
+     * 待焚毁记录统一写入口（DESIGN §3.9）：读-改-写整个集合，同值跳写。
+     * 记录是"承诺焚毁"的凭据，写失败最多留一张孤儿图，不影响出码本身。
+     */
+    suspend fun updateEbikePendingDelete(transform: (Set<String>) -> Set<String>) {
+        context.displayDataStore.edit { p ->
+            val current = p[KEY_EBIKE_PENDING_DELETE] ?: emptySet()
+            val next = transform(current)
+            if (next != current) {
+                if (next.isEmpty()) p.remove(KEY_EBIKE_PENDING_DELETE) else p[KEY_EBIKE_PENDING_DELETE] = next
+            }
+        }
     }
 
     /**
@@ -602,6 +638,8 @@ class DisplayPrefsStore(private val context: Context) {
         val KEY_WATER_CARD_ENABLED = booleanPreferencesKey("water_card_enabled")
         val KEY_EBIKE_CARD_ENABLED = booleanPreferencesKey("ebike_card_enabled")
         val KEY_EBIKE_AUTO_SAVE = booleanPreferencesKey("ebike_auto_save")
+        val KEY_EBIKE_BURN_AFTER_SCAN = booleanPreferencesKey("ebike_burn_after_scan")
+        val KEY_EBIKE_PENDING_DELETE = stringSetPreferencesKey("ebike_pending_delete")
         val KEY_EBIKE_RECENT_IDS = stringPreferencesKey("ebike_recent_ids")
         val KEY_CAMPUS_CARD_ENABLED = booleanPreferencesKey("campus_card_enabled")
         val KEY_SHORTCUTS_JSON = stringPreferencesKey("shortcuts_json")

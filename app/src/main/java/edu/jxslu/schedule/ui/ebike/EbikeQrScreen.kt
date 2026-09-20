@@ -30,6 +30,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,11 +42,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import edu.jxslu.schedule.Graph
@@ -61,7 +67,8 @@ import me.rerere.hugeicons.stroke.ScooterElectric
 
 /**
  * 共享单车出码页（DESIGN §3.9）：尾部车号输入 → 生成骑行二维码 →
- * 自动保存（开关默认关）/手动保存 + 最近车号回填 + 微信扫一扫 best-effort。
+ * 自动保存（开关默认关）/手动保存 + 扫完即焚（开关默认开：回到 App 即清除
+ * 已保存的码）+ 最近车号回填 + 微信扫一扫 best-effort。
  * 结果提示走页面 Snackbar（二级页窗口内无更高层弹层，不会穿透问题）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +85,8 @@ fun EbikeQrScreen(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptics = rememberAppHaptics()
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -87,6 +96,21 @@ fun EbikeQrScreen(
                 )
             }
         }
+    }
+
+    // 扫完即焚触发点（DESIGN §3.9）：从微信/桌面回到 App（ON_RESUME）时清掉
+    // 已保存的二维码。 DisposableEffect 组合提交晚于 ON_RESUME 的场景（冷启动恢复）
+    // 用 isAtLeast(RESUMED) 兜底执行一次；pending 为空时 burnPending 是 no-op，天然幂等。
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.burnPending()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            viewModel.burnPending()
+        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -130,6 +154,8 @@ fun EbikeQrScreen(
             Button(
                 onClick = {
                     haptics.tap()
+                    keyboard?.hide()
+                    focusManager.clearFocus()
                     viewModel.generate()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -167,6 +193,40 @@ fun EbikeQrScreen(
                         haptics.tap()
                         autoSaveChecked = it
                         scope.launch { Graph.displayPrefs(context).setEbikeAutoSave(it) }
+                    },
+                )
+            }
+
+            // 扫完即焚开关（DESIGN §3.9：默认开——保存的码是扫码一次性耗材，用完不留痕）
+            var burnChecked by remember(prefs.burnAfterScan) { mutableStateOf(prefs.burnAfterScan) }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        haptics.tap()
+                        burnChecked = !burnChecked
+                        scope.launch { Graph.displayPrefs(context).setEbikeBurnAfterScan(burnChecked) }
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "扫完码返回后自动删除",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "保存到相册的二维码会在回到 App 后自动清除",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    )
+                }
+                Switch(
+                    checked = burnChecked,
+                    onCheckedChange = {
+                        haptics.tap()
+                        burnChecked = it
+                        scope.launch { Graph.displayPrefs(context).setEbikeBurnAfterScan(it) }
                     },
                 )
             }

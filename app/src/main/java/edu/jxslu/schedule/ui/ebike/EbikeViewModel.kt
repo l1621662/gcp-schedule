@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -33,9 +34,10 @@ data class EbikeUiState(
     val inputError: String? = null,
 )
 
-/** 页面级偏好快照（自动保存开关、深浅色、最近车号）。 */
+/** 页面级偏好快照（自动保存/扫完即焚开关、深浅色、最近车号）。 */
 data class EbikePrefsSnapshot(
     val autoSave: Boolean = false,
+    val burnAfterScan: Boolean = true,
     val dark: Boolean = false,
     val recentIds: List<String> = emptyList(),
 )
@@ -50,7 +52,8 @@ sealed interface EbikeEvent {
  *
  * 生成 = 拼 URL（[EbikeQr.bikeUrl] 校验，非法输入不出码）→ zxing 矩阵 → 位图；
  * 自动保存开关开着时，生成即落相册（后台线程，结果经 [events] 提示）；
- * 最近车号历史随生成更新（DataStore，上限 8）。
+ * 扫完即焚开着时，保存成功记录待焚毁 key，回到 App（页面 ON_RESUME）后
+ * 由 [burnPending] 从相册删除；最近车号历史随生成更新（DataStore，上限 8）。
  * 二维码内容不含个人信息，历史也不出本机。
  */
 class EbikeViewModel(private val prefs: DisplayPrefsStore) : ViewModel() {
@@ -61,14 +64,16 @@ class EbikeViewModel(private val prefs: DisplayPrefsStore) : ViewModel() {
     private val _events = Channel<EbikeEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
-    /** 骑行相关偏好（卡开关不归本页管，但自动保存/深浅色/历史在本页用）。 */
+    /** 骑行相关偏好（卡开关不归本页管，但自动保存/焚毁/深浅色/历史在本页用）。 */
     val ebikePrefs: StateFlow<EbikePrefsSnapshot> = combine(
         prefs.ebikeAutoSave,
+        prefs.ebikeBurnAfterScan,
         prefs.themeMode,
         prefs.ebikeRecentIds,
-    ) { autoSave, themeMode, recent ->
+    ) { autoSave, burnAfterScan, themeMode, recent ->
         EbikePrefsSnapshot(
             autoSave = autoSave,
+            burnAfterScan = burnAfterScan,
             dark = themeMode == ThemeMode.Dark,
             recentIds = recent,
         )
@@ -113,20 +118,68 @@ class EbikeViewModel(private val prefs: DisplayPrefsStore) : ViewModel() {
         }
     }
 
-    /** 手动把当前展示的码存相册（自动保存关闭时的兜底动作）。 */
+    /**
+     * 手动把当前展示的码存相册（自动保存关闭时的兜底动作）。
+     * 保存成功且扫完即焚开着时，记录待焚毁 key——回来时由 [burnPending] 清除。
+     */
     fun saveCurrent() {
         val state = _uiState.value
         val bitmap = state.generatedBitmap ?: return
         val bikeId = state.generatedBikeId ?: return
         viewModelScope.launch {
             val appContext = Graph.appContext
-            val error = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 EbikeQrBitmaps.saveToGallery(appContext, bitmap, bikeId)
             }
-            if (error == null) {
-                _events.send(EbikeEvent.Notice("已保存到相册「水贝贝」", NoticeTone.Success))
-            } else {
-                _events.send(EbikeEvent.Notice(error, NoticeTone.Error))
+            when (result) {
+                is EbikeQrBitmaps.SaveResult.Saved -> {
+                    if (ebikePrefs.value.burnAfterScan) {
+                        prefs.updateEbikePendingDelete {
+                            EbikeQr.mergePendingDelete(it, result.pendingKey)
+                        }
+                    }
+                    _events.send(EbikeEvent.Notice("已保存到相册「水贝贝」", NoticeTone.Success))
+                }
+                is EbikeQrBitmaps.SaveResult.Failed ->
+                    _events.send(EbikeEvent.Notice(result.message, NoticeTone.Error))
+            }
+        }
+    }
+
+    /**
+     * 扫完即焚（DESIGN §3.9）：删除所有记录在案的待焚毁二维码，成功才移出记录。
+     * 由页面 ON_RESUME 触发（从微信/桌面回到 App 时）；开关关闭时不删不清——
+     * 关掉 = 完全回到旧语义。防重入：进行中的焚毁不叠跑。
+     */
+    @Volatile
+    private var burning = false
+
+    fun burnPending() {
+        if (burning) return
+        burning = true
+        viewModelScope.launch {
+            try {
+                // 开关真值必须读原始流：ebikePrefs 的 stateIn 快照在 DataStore
+                // 首次发射前是默认值（true），冷启动恢复的首帧竞态下会误删
+                // 「用户已关闭焚毁」时留下的记录。
+                if (!prefs.ebikeBurnAfterScan.first()) return@launch
+                val appContext = Graph.appContext
+                while (true) {
+                    val pending = prefs.ebikePendingDelete.first()
+                    if (pending.isEmpty()) break
+                    val deleted = pending.filter { key ->
+                        withContext(Dispatchers.IO) { EbikeQrBitmaps.deletePending(appContext, key) }
+                    }
+                    prefs.updateEbikePendingDelete { it - deleted.toSet() }
+                    if (deleted.isEmpty()) break // 全部失败（如文件已不在），保留记录别空转
+                    _events.send(
+                        EbikeEvent.Notice("已清除存入相册的二维码（扫完即焚）", NoticeTone.Success),
+                    )
+                    if (deleted.size == pending.size) break
+                    // 有失败项：下轮重试剩余的；连续失败会在下一轮走 break
+                }
+            } finally {
+                burning = false
             }
         }
     }

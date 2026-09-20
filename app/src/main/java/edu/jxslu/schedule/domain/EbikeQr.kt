@@ -32,6 +32,49 @@ object EbikeQr {
     /** 最近车号历史上限（DESIGN §3.9：8 个，倒序去重）。 */
     const val RECENT_LIMIT = 8
 
+    /** 待焚毁二维码记录上限（扫完即焚；正常使用到不了，只防异常膨胀）。 */
+    const val PENDING_DELETE_LIMIT = 32
+
+    /** 待焚毁记录前缀：MediaStore uri（API 29+）。 */
+    const val PENDING_MEDIA_PREFIX = "m:"
+
+    /** 待焚毁记录前缀：公共目录文件绝对路径（API 26–28）。 */
+    const val PENDING_FILE_PREFIX = "f:"
+
+    /** 待焚毁记录的删除通道：决定走 MediaStore 还是 File。 */
+    enum class PendingKind { MediaStore, FilePath }
+
+    /** MediaStore 保存条目 → 待焚毁 key。 */
+    fun pendingMediaKey(uri: String): String = PENDING_MEDIA_PREFIX + uri
+
+    /** 公共目录保存文件 → 待焚毁 key。 */
+    fun pendingFileKey(path: String): String = PENDING_FILE_PREFIX + path
+
+    /**
+     * 待焚毁 key → 删除通道与目标。未知前缀（脏数据/旧版本）返回 null，
+     * 调用方丢弃即可——删错文件比漏删一张码严重得多。
+     */
+    fun parsePendingKey(key: String): Pair<PendingKind, String>? = when {
+        key.startsWith(PENDING_MEDIA_PREFIX) ->
+            key.removePrefix(PENDING_MEDIA_PREFIX).takeIf { it.isNotBlank() }
+                ?.let { PendingKind.MediaStore to it }
+        key.startsWith(PENDING_FILE_PREFIX) ->
+            key.removePrefix(PENDING_FILE_PREFIX).takeIf { it.isNotBlank() }
+                ?.let { PendingKind.FilePath to it }
+        else -> null
+    }
+
+    /**
+     * 把刚保存的待焚毁 key 并入记录集：去重、防膨胀（超 [PENDING_DELETE_LIMIT]
+     * 丢最旧的——Set 无序，这里只是兜底防膨胀，不承诺淘汰顺序）。
+     */
+    fun mergePendingDelete(current: Set<String>, key: String): Set<String> =
+        (current + key).let { merged ->
+            if (merged.size > PENDING_DELETE_LIMIT) {
+                merged.toList().takeLast(PENDING_DELETE_LIMIT).toSet()
+            } else merged
+        }
+
     /**
      * 拼完整骑行链接。尾部必须是恰好 3 位数字，否则返回 null——
      * 非法输入宁可拒掉也不出一张扫不开的码。

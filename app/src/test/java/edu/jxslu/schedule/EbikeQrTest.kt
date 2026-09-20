@@ -120,4 +120,52 @@ class EbikeQrTest {
             EbikeQr.decodeRecent(json),
         )
     }
+
+    // ---- 扫完即焚：待焚毁 key 编码 / 解析 / 合并 ----
+
+    @Test
+    fun `待焚毁key 编码与解析 roundtrip`() {
+        // MediaStore uri（API 29+）与文件路径（26–28）两条通道
+        val media = EbikeQr.pendingMediaKey("content://media/external/images/media/123")
+        assertEquals(
+            EbikeQr.PendingKind.MediaStore to "content://media/external/images/media/123",
+            EbikeQr.parsePendingKey(media),
+        )
+        val file = EbikeQr.pendingFileKey("/storage/emulated/0/Pictures/水贝贝/ebike-100000669.jpg")
+        assertEquals(
+            EbikeQr.PendingKind.FilePath to "/storage/emulated/0/Pictures/水贝贝/ebike-100000669.jpg",
+            EbikeQr.parsePendingKey(file),
+        )
+    }
+
+    @Test
+    fun `待焚毁key 未知前缀与空目标拒绝`() {
+        // 删错文件比漏删一张码严重：脏 key 一律丢弃
+        assertNull(EbikeQr.parsePendingKey("x:content://media/1"))
+        assertNull(EbikeQr.parsePendingKey("plain-path"))
+        assertNull(EbikeQr.parsePendingKey(""))
+        assertNull(EbikeQr.parsePendingKey("m:"))
+        assertNull(EbikeQr.parsePendingKey("f:"))
+    }
+
+    @Test
+    fun `mergePendingDelete 去重且不膨胀`() {
+        var set = EbikeQr.mergePendingDelete(emptySet(), "m:1")
+        assertEquals(setOf("m:1"), set)
+        set = EbikeQr.mergePendingDelete(set, "m:1")
+        assertEquals(setOf("m:1"), set)
+        set = EbikeQr.mergePendingDelete(set, "f:/a/b.jpg")
+        assertEquals(setOf("m:1", "f:/a/b.jpg"), set)
+    }
+
+    @Test
+    fun `mergePendingDelete 超上限兜底不超32`() {
+        var set = emptySet<String>()
+        repeat(EbikeQr.PENDING_DELETE_LIMIT + 8) { i ->
+            set = EbikeQr.mergePendingDelete(set, "m:$i")
+        }
+        assertEquals(EbikeQr.PENDING_DELETE_LIMIT, set.size)
+        assertTrue(set.contains("m:39")) // 最新保留
+        assertFalse(set.contains("m:0")) // 兜底挤掉旧记录
+    }
 }
