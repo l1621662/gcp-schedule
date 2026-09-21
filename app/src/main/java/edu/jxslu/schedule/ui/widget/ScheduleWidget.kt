@@ -152,10 +152,11 @@ internal object WidgetSnapshotStore {
             highlightDay = highlightDay,
             slots = slots,
             now = now,
-            // 「现在在第几节」只在今天还有课可上时标；今天上完/没课时高亮列已是明天，
+            // 「现在在第几节」只在今天还有课可上时标（焦点课与远课都算——时刻线表示
+            // 现在几点，与焦点卡是否显示无关）；今天上完/没课时高亮列已是明天，
             // 在今天画「现在」没意义（也与高亮列语义一致）
-            markNow = state.focus != null,
-            nowDay = state.focus?.let { state.day },
+            markNow = state.focus != null || state.remaining.isNotEmpty(),
+            nowDay = state.day,
         )
         return buildWidgetSnapshot(state, grid)
     }

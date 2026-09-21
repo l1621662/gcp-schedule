@@ -7,15 +7,25 @@ import java.time.LocalDate
  *
  * 核心取舍：
  * - **已结束的课不出现**；列表只放「还没开始的」。
- * - **同一节课只出现一次**：顶部焦点卡（正在上课 / 下一节）拿走第一门，
+ * - **同一节课只出现一次**：顶部焦点卡（正在上课 / 60 分钟内的下一节）拿走第一门，
  *   [listCourses] 是 [remaining] 去掉那一门之后的列表。旧版没做这层去重，
  *   列表第一项和状态卡是同一节课，看着像内容重复。
+ * - **「下一节」有 60 分钟准入窗口**：更远的课留在列表里排队，不冒充「下一节」。
  * - 今天没有待上课程（上完 / 没课）时才让「明天」上桌（[tomorrowVisible]）。
  *
  * 位置说明：本文件原先在 `ui/today/TodayViewModel.kt`。桌面小组件（`ui/widget`）
  * 需要与今日页**完全同源**的状态推导，而 domain 侧不得引用 ui 包，故整体下移；
  * 今日页的 `TodayViewModel` 仍在此状态之上做 ViewModel 封装。
  */
+/**
+ * 「下一节」焦点卡准入窗口（分钟）。
+ *
+ * 2026-09-21 改（DESIGN §3.3）：下一节课距开始超过该窗口时不进焦点卡——
+ * 凌晨看下午的课、上午看下午第一节的课，都不该冒充「下一节」挂一整天。
+ * 正在上课不受窗口约束（focus=正在上的课，上完它下一节再按窗口接棒）。
+ */
+const val NEXT_COURSE_WINDOW_MINUTES = 60
+
 data class TodayState(
     val loading: Boolean = true,
     val semester: SemesterConfig? = null,
@@ -32,11 +42,15 @@ data class TodayState(
     val remaining: List<Course> = emptyList(),
     /** 正在上的课，多门重叠时取最早开始的；**不同时出现在 remaining 里** */
     val ongoing: Course? = null,
-    /** 今天最近一节还没开始的课；**仍在 remaining 里**（列表头计数含它） */
+    /**
+     * 今天下一节且**距开始 ≤ [NEXT_COURSE_WINDOW_MINUTES] 分钟**的课；**仍在 remaining 里**
+     * （列表头计数只数列表，本就把它拿走了）。更远的课留在 [remaining] 里排队，
+     * 不冒充「下一节」——焦点卡与小组件共用这一取舍。
+     */
     val next: Course? = null,
     /** 焦点卡下方的列表 = [remaining] 去掉焦点那门，避免同一节课两处重复 */
     val listCourses: List<Course> = emptyList(),
-    /** 距下一节上课还有几分钟 */
+    /** 距下一节上课还有几分钟；仅 [next] 非空时有效（远课时为 null） */
     val minutesToNext: Int? = null,
     /** 当前这节还剩几分钟下课（整门课口径，自定义时间/兜底用） */
     val minutesToOngoingEnd: Int? = null,
@@ -63,7 +77,10 @@ data class TodayState(
     val tomorrowVisible: Boolean = false,
     val tomorrowCourses: List<Course> = emptyList(),
 ) {
-    /** 焦点课：正在上课优先，否则今天下一节。**今日页与小组件共用同一取舍。** */
+    /**
+     * 焦点课：正在上课优先，否则 60 分钟窗口内的下一节。
+     * **今日页与小组件共用同一取舍。**
+     */
     val focus: Course? get() = ongoing ?: next
 }
 
@@ -94,7 +111,11 @@ fun buildTodayState(
     // 列表只放「还没开始」：已结束不进列表，正在上的只进顶部焦点卡（避免同一节课两处重复）
     val remaining = sorted.filter { phases[it.id] == CoursePhase.Upcoming }
     val ongoing = sorted.firstOrNull { phases[it.id] == CoursePhase.Ongoing }
-    val next = remaining.firstOrNull()
+    // 「下一节」要过准入窗口：最近的未开始课距开始 ≤60 分钟才进焦点卡；
+    // 更远时 next=null（焦点让位给轻量提示 + 完整列表），但 remaining 不变
+    val next = remaining.firstOrNull()?.takeIf { first ->
+        (minutesUntilStart(slots, first, now) ?: Int.MAX_VALUE) <= NEXT_COURSE_WINDOW_MINUTES
+    }
     val focus = ongoing ?: next
 
     val tomorrow = today.plusDays(1)
@@ -125,7 +146,9 @@ fun buildTodayState(
         tomorrowDay = tomorrowDay,
         tomorrowWeek = tomorrowWeek,
         tomorrowInTerm = tomorrowInTerm,
-        tomorrowVisible = tomorrowInTerm && focus == null,
+        // 明天上桌的判定**显式**按「今天的待上课程清空」：不依赖焦点是否为空——
+        // 远课时（下一节在 60 分钟窗口外）焦点为空但今天有课，明天不得提前上桌
+        tomorrowVisible = tomorrowInTerm && ongoing == null && remaining.isEmpty(),
         tomorrowCourses = if (tomorrowInTerm) {
             ScheduleCalculator.coursesOnDay(courses, tomorrowWeek, tomorrowDay)
                 .sortedBy { startKey(slots, it) }

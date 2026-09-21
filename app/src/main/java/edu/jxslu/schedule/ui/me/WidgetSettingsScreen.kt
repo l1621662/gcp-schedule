@@ -451,21 +451,21 @@ private fun rememberPreviewSnapshot(): WidgetSnapshot? {
             val week = if (state.inTerm) state.week else 1
             val highlight = state.focus?.day
                 ?: state.tomorrowDay.takeIf { state.tomorrowVisible }
-            buildWidgetSnapshot(
-                state,
-                buildWidgetWeek(
-                    courses = courses,
-                    week = week,
-                    showSaturday = prefs.showSaturday,
-                    showSunday = prefs.showSunday,
-                    filter = prefs.courseFilter,
-                    highlightDay = highlight,
-                    slots = slots,
-                    now = now,
-                    markNow = state.focus != null,
-                    nowDay = state.focus?.let { state.day },
-                ),
-            )
+                buildWidgetSnapshot(
+                    state,
+                    buildWidgetWeek(
+                        courses = courses,
+                        week = week,
+                        showSaturday = prefs.showSaturday,
+                        showSunday = prefs.showSunday,
+                        filter = prefs.courseFilter,
+                        highlightDay = highlight,
+                        slots = slots,
+                        now = now,
+                        markNow = state.focus != null || state.remaining.isNotEmpty(),
+                        nowDay = state.day,
+                    ),
+                )
         }.getOrNull()
     }.value
 }

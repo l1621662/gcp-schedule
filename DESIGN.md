@@ -143,9 +143,24 @@
 - 结构：**焦点卡 + 单时间轴 + 贴底固定区（快捷方式网格 → 一键开水卡）**，同一条信息只摆一次
   - 焦点卡 = 正在上课 / 今天的下一节；正在上课时带整门课进度条与「还有 N 分钟下课」。
     焦点课**不出现在下方列表**（旧版两处重复是"乱"的首要来源）
-  - 时间轴行 = 行首时刻（`10:15`）+ 两行色卡（课名 / `@地点 · 教师`）；行内不重复时刻与节次号；
-    色卡纵向内边距 **13dp**（2026-09-19 自 9dp 加高：行高约 68dp，卡内两行文字呼吸感更足）
-  - 已结束的课不显示；列表头计数**含**焦点卡那节，数字与页面上的课块数一致
+  - **「下一节」有 60 分钟准入窗口**（2026-09-21 改）：只有下一节课距开始 **≤60 分钟**
+    才进焦点卡；更远（凌晨看下午的课、上午看下午第一节的课）不冒充「下一节」，
+    页面从「今天还有 N 节」列表开始，列表上方给一行轻量提示「今天的课 14:00 开始」
+    交代落点。正在上课时焦点卡不受窗口约束（focus=正在上的课，下一节等它上完再接棒）。
+    「明天上桌」判定同步显式化：今天的待上课程清空（上完 / 没课）才上桌，
+    不再依赖「焦点为空」——远课时焦点为空但今天有课，明天不得提前上桌
+  - **焦点卡与时间轴行同一卡片形态**（2026-09-21 定稿，用户拍板）：都是**满宽卡片**——
+    同为横向 16dp 外边距 + 卡内 11/13dp 内边距 + 圆角 12dp，左右缘天然对齐；
+    区分靠底色与内容——焦点卡 = 主色 8% 底 + 左缘 3dp 主色竖条 + 状态行
+    （正在上课 / 下一节 · 第N-M节 + 倒计时）+（正在上课时）进度条，
+    时间轴行 = 课程色 16% 底 + 课名 + meta。
+    旧版「行首 50dp 时刻列」删除：两列不对称结构用户观感差，
+    时刻范围（`10:15–11:40`）由 metaLine 承担，信息不丢失
+  - 时间轴行卡内两行（课名 / `时刻范围 · @地点 · 教师`）；色卡纵向内边距 **13dp**
+    （2026-09-19 自 9dp 加高：卡内两行文字呼吸感更足）
+  - 已结束的课不显示；列表头计数 = **列表里的课数**（不含焦点卡那节）——
+    2026-09-21 改口径：旧版用 remaining.size（含焦点卡拿走的那节），
+    「今天还有 2 节」下面只列 1 节，数字对不上页面课块数
   - 点击课程（焦点卡 / 时间轴行 / 明天行）：**只读详情面板**（与课表页同一 `CourseDetailSheet`，
     编辑/删除为二级动作）——此前直跳编辑器易误触，2026-09-19 对齐课表页口径
 - 明天：只在今天没有待上课程（上完 / 没课）时上桌，复用同一行组件；明天也没课给一句休息提示
@@ -347,6 +362,10 @@
 
 - 焦点课、剩余列表的取舍**完全复用** `domain/buildTodayState()`（今日页唯一状态源，
   widget 与今日页共用同一纯函数）——已结束的课不显示、同一节课不两处出现，这些规则不重写
+- **「下一节」60 分钟窗口与今日页同口径**（2026-09-21 改）：下一节课距开始 >60 分钟时
+  焦点位不显示「下一节」课程卡，改为一行状态（「今天还有 N 节课」+「下一节 14:00 开始」），
+  列表仍是今天剩余课程；周网格「现在」时刻线仍照画（时刻线表示现在几点，与焦点卡无关）。
+  正在上课 / 60 分钟内的下一节行为不变
 - **今日上完 / 今天没课 → 明日接棒**（2026-09-20 改版）：主内容切到
   `WidgetList{ day = TOMORROW }`——一行状态（「今天的课都上完了」/「今天没有课」）
   紧接「明天 · 周五 · N 节」+ 明日课程列表，**中间不留弹性空白**。
@@ -1726,7 +1745,8 @@ ui/campus/StatementScreen.kt           # 消费流水页（月汇总 + 月切换
   `data_extraction_rules.xml` 排除（本 App `allowBackup=true`，不排除会随云备份走）。
 - 无 HttpLoggingInterceptor；任何异常路径不打印密码/token/付款码全文。
 - 付款码页 `FLAG_SECURE`（防截屏 + 防最近任务缩略图）；亮度拉满离开即恢复。
-- 只调只读接口（登录/档案/账户/取码/余额/流水查询）；**充值、挂失、转账、改限额一律不做**
+- 只调只读接口（登录/档案/账户/取码/余额/流水查询）+ **充值下单/删单**（§4.19「充值」，
+  仅用户主动触发，不自动充值）；**挂失、转账、改限额一律不做**
   （queryCard 响应里的 autotrans/modifyAcc 相关能力不触碰）。
 - README 免责声明同步：新增「校园卡登录同样模拟客户端操作；付款码等同现金，泄露可能被盗刷」。
 
@@ -1752,6 +1772,52 @@ B1 文档（余额+流水接口）→ B2 数据层 + 单测 → B3 付款码页�
 B5 设置页余额状态 → B6 构建全绿 + 真机验证。
 B7–B9 小优化（总超时/CARD 预检/token 单点）→ L1 文档 → L2 Room v6 表 + DAO + 迁移 →
 L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状）→ L5 构建全绿 + 真机验证。
+
+#### 充值（2026-09-21 追加，方案二：App 内下单 + 外部浏览器支付）
+
+**实测链路**（`scripts/out/probe_ykt_*.py`，2026-09-21；凭证走环境变量不入库）：
+
+1. 配置：`frontInfo.getFrontConfig` JSON → `recharge:"401"`（feeitemid）、
+   `payment:"…/payment/"`（官方收银台独立 Vue 应用，**自己不创建订单**，从 URL query 注入
+   `synjones-auth` 登录态 + `orderid`）。
+2. 下单 = **HTML 表单同步提交**（非 JSON API）：`POST /charge/order/thirdOrder`
+   （campus-card 充值页 chunk `d98c9872` 的 `confirm()` 原样还原），字段：
+   `feeitemid=401`、`appid=56321`、`tranamt=<元，浮点，amount-input parseFloat 不乘100>`、
+   `source=app`、`synjones-auth=bearer <token>`、`yktcard=<卡 account>`、
+   `synAccessSource=h5`，外加签名三件套 `APP_ID/TIMESTAMP(yyyyMMddHHmmssSSS)/NONCE/SIGN_TYPE`。
+3. **签名算法**（收银台 chunk `6affa2d0` 与充值页一致，`appid`/`SECRET_KEY` 均硬编码于
+   公开前端 JS）：参数并集（业务字段 + `APP_ID=56321` + `TIMESTAMP` + `NONCE` + `SIGN_TYPE=SHA256`），
+   **key 字典序**、跳过空值（`0` 保留）与 `SIGN/SECRET_KEY` 两键，拼 `k=v&`，
+   末尾拼 `SECRET_KEY=<密钥>`，SHA256 十六进制**大写**。
+4. 支付：收银台 `GET /charge/pay/getpayinfo?orderid=` 拉订单与 `payList` 渠道 →
+   `POST /blade-pay/pay`（同一签名算法，`paystep:2`；CARD/ACCOUNT 账户余额渠道需支付密码
+   `password="1$1$<6位>$1$<键盘uuid>"` 或短信验证码，密码键盘同 berserker-secure）。
+   渠道矩阵：`CARD/CARDTSM/ACCOUNT/ACCOUNTTSM`（余额类）、`BCM`、**weixin=JSAPI**
+   （`WeixinJSBridge.chooseWXPay`，**仅微信环境可用**）、**alipay=webUrl 跳转**（外部浏览器可用）。
+   支付结果经 `wss://…/websocket/mobile_service_platform/bankcard_recharge/{orderid}` 推送；
+   未支付订单收银台侧超时关闭，另有 `POST /charge/order/deleteOrder`。
+5. **实测形态（2026-09-21，0.01 元真实下单 ×2 + 只读查单）**：`thirdOrder` 成功 = **302
+   Location** 下发完整收银台 URL `/payment?orderid=<id>&token=<JWT>`（登录态参数名是
+   `token` 不是 `synjones-auth`；App 不自己拼，直接打开 Location）。**`queryCard` 的
+   `account` 是 6 位数字卡号（如 24xxxx），不是学号**——`yktcard` 必须用查询返回的
+   account（首版误传学号导致「未找到要充值的卡账户」，已修）。查单 `getpayinfo`：
+   `order.status=0`（待支付）、`payList` 单条 **CAMPUSCARD /「微信充值」**（payid=63，
+   `nopassword=0` = 需 6 位消费密码，即食堂 POS 密码，只在官方页输入）——本校园
+   微信充值即此渠道，无独立支付宝/微信 code。`deleteOrder` 实测 500（平台侧行为），
+   未支付订单由收银台超时关闭（前端配置 delayTime=30 分钟），不扣款。客户端 OkHttp
+   必须关闭自动重定向跟随才能拿到 302 Location。
+
+**App 侧实现（方案二）**：
+
+- `domain/YktRechargeSign.kt`（纯 JVM）：sign 算法 + `buildTimestamp`；单测覆盖排序/空值/大小写。
+- `YktRepository.rechargeCreate(username, password, account, yuan)` → 组表单 + SIGN +
+  `thirdOrder`；返回 `YktOrder(webUrl?)`。`YktRepository.rechargeCancel(orderid)` → 删单（兜底）。
+- UI（校园卡设置页余额卡内「充值」）：底部弹层输金额（预设 20/50/100/200，0.01–500 元校验）
+  → 二次确认（账户+金额）→ `thirdOrder` → **打开 302 Location 下发的官方收银台 URL**
+  （当前该校仅 CAMPUSCARD 渠道，6 位消费密码在官方页输入；App 不接触）→
+  返回 App 后「等待支付」态轮询（30s×15 分钟：余额变化即提示到账，超时提示去账单页核对）。
+- 红线：支付密码/银行卡只在官方收银台 H5 内输入，App 不接触；不自动充值；
+  SIGN 密钥是前端公开常量（非逆向所得），平台改版即失效，报错兜底文案给「平台可能已改版」。
 
 ---
 

@@ -61,21 +61,46 @@ class TodayStateTest {
         buildTodayState(semester, slots, courses, thursday, time)
 
     @Test
-    fun beforeFirstClass_showsAllThreeAndNextIsTheFirst() {
+    fun beforeFirstClass_farAway_nextIsNullButListKeepsAll() {
+        // 7:00 距 10:15 还有 195 分钟 > 60 分钟窗口 → 不冒充「下一节」，
+        // 全部课留在列表里，明天也不提前上桌（DESIGN §3.3）
         val s = stateAt(LocalTimeLike(7, 0))
         assertEquals(3, s.remaining.size)
         assertNull(s.ongoing)
-        assertEquals("机电传动控制B", s.next?.name)
-        assertEquals(195, s.minutesToNext)
+        assertNull(s.next)
+        assertNull(s.focus)
+        assertNull(s.minutesToNext)
         assertFalse(s.todayAllDone)
         assertFalse(s.todayEmpty)
         assertEquals(3, s.todayTotal)
         assertNull(s.ongoingCountdown)
-        // 焦点课（下一节）从列表里拿走：列表 2 门 + 焦点卡 1 门 = remaining 3 门，不重复
+        // 没有焦点卡 → 列表 = remaining（3 门全在），明天不上桌
+        assertEquals(3, s.listCourses.size)
+        assertFalse(s.tomorrowVisible)
+    }
+
+    @Test
+    fun beforeFirstClass_withinWindow_nextEntersFocus() {
+        // 9:30 距 10:15 还有 45 分钟 ≤ 60 → 进焦点卡，从列表里拿走
+        val s = stateAt(LocalTimeLike(9, 30))
+        assertEquals("机电传动控制B", s.next?.name)
+        assertEquals(45, s.minutesToNext)
         assertEquals(2, s.listCourses.size)
         assertFalse(s.listCourses.any { it.name == s.next?.name })
-        // 今天还有课 → 明天先不上桌
         assertFalse(s.tomorrowVisible)
+    }
+
+    @Test
+    fun windowBoundary_sixtyMinutesIsInclusive() {
+        // 第 3 节 10:15 开始：9:15 = 恰好 60 分钟 → 进窗口；9:14 = 61 分钟 → 不进
+        val inside = stateAt(LocalTimeLike(9, 15))
+        assertEquals("机电传动控制B", inside.next?.name)
+        assertEquals(60, inside.minutesToNext)
+
+        val outside = stateAt(LocalTimeLike(9, 14))
+        assertNull(outside.next)
+        assertNull(outside.focus)
+        assertEquals(3, outside.listCourses.size)
     }
 
     @Test
@@ -83,7 +108,10 @@ class TodayStateTest {
         val s = stateAt(LocalTimeLike(10, 30))
         assertEquals("机电传动控制B", s.ongoing?.name)
         assertEquals(70, s.minutesToOngoingEnd)
-        assertEquals("机械制造基础A", s.next?.name)
+        // 下一节 14:00 距 10:30 还有 210 分钟 > 60 窗口 → 不进「下一节」；
+        // 正在上优先于一切，focus = 正在上的课
+        assertNull(s.next)
+        assertEquals("机电传动控制B", s.focus?.name)
         // 正在上的课只进焦点卡，列表只放未开始的两节（避免同一节课两处重复）
         assertEquals(2, s.remaining.size)
         assertEquals(listOf("机械制造基础A", "人机交互技术"), s.remaining.map { it.name })
@@ -91,6 +119,32 @@ class TodayStateTest {
         assertEquals(s.remaining.map { it.name }, s.listCourses.map { it.name })
         assertFalse(s.listCourses.any { it.name == s.ongoing?.name })
         assertFalse(s.tomorrowVisible)
+    }
+
+    /**
+     * 正在上课时下一节就在眼前（≤60 分钟）：focus 仍是正在上的课，
+     * **不会被下一节顶掉**（用户口径：上着课就不动，上完再接棒）；
+     * 下一节留在列表里（remaining 去掉的是正在上的课）。
+     */
+    @Test
+    fun ongoingWithNextNearby_focusStaysOnOngoing() {
+        // 11:30：3-4 节（10:15-11:40）在上，5-6 节 14:00 还有 150 分钟——远了不算；
+        // 换 10:55 的课间看：下一节 14:00 也远。用一个 60 分钟内的场景：
+        // 13:10 处于午休（无课进行中），14:00 的课还有 50 分钟 ≤ 60 → 它是 next，
+        // 被焦点卡拿走 → 列表只剩 7-8 节一门
+        val s = stateAt(LocalTimeLike(13, 10))
+        assertNull(s.ongoing)
+        assertEquals("机械制造基础A", s.next?.name)
+        assertEquals(50, s.minutesToNext)
+        assertEquals(1, s.listCourses.size)
+
+        // 14:30：5-6 节（14:00-15:25）在上，7-8 节 15:45 还有 75 分钟 > 60 → next=null，
+        // focus 停在正在上的课；上一节 3-4 已结束
+        val mid = stateAt(LocalTimeLike(14, 30))
+        assertEquals("机械制造基础A", mid.ongoing?.name)
+        assertNull(mid.next)
+        assertEquals("机械制造基础A", mid.focus?.name)
+        assertEquals(1, mid.listCourses.size) // 只剩 7-8 节在列表
     }
 
     @Test
@@ -150,10 +204,10 @@ class TodayStateTest {
     @Test
     fun lunchBreak_ongoingIsNull() {
         val s = stateAt(LocalTimeLike(11, 50))
-        // 3-4 节已结束，剩下 5-6、7-8
+        // 3-4 节已结束，剩下 5-6（14:00，还有 130 分钟 > 60 窗口）、7-8
         assertEquals(2, s.remaining.size)
         assertNull(s.ongoing)
-        assertEquals("机械制造基础A", s.next?.name)
+        assertNull(s.next)
         assertNull(s.ongoingCountdown)
     }
 
@@ -255,8 +309,13 @@ class TodayStateTest {
         assertEquals("晚自习自定", s.remaining.lastOrNull()?.name)
         assertEquals(3 + 1, s.remaining.size)
         assertNull(s.ongoing)
-        // 07:00 时最近的一节仍按有效时刻取：10:15 的课早于 18:00 的课
-        assertEquals("机电传动控制B", s.next?.name)
+        // 07:00 距最近一门（10:15）195 分钟 > 60 窗口 → 不进「下一节」
+        assertNull(s.next)
+        // 有效时刻参与窗口判定：17:20 距 18:00 恰好 40 分钟 → 这门自定义课是 next
+        //（前三门课 10/15 之后全结束了，此时只剩这门自定义课未开始）
+        val near = stateAt(LocalTimeLike(17, 20), thursdayCourses + custom)
+        assertEquals("晚自习自定", near.next?.name)
+        assertEquals(40, near.minutesToNext)
         // 有效时刻参与倒计时：18:00 - 07:00 = 660 分钟
         assertEquals(660, minutesUntilStart(slots, custom, LocalTimeLike(7, 0)))
         assertEquals(120, minutesUntilEnd(slots, custom, LocalTimeLike(18, 0)))
@@ -265,7 +324,7 @@ class TodayStateTest {
     /** 焦点卡取走的课不能同时留在列表里——两处显示同一节课是旧版显乱的第一来源。 */
     @Test
     fun focusCourseNeverDuplicatesInList() {
-        for (time in listOf(LocalTimeLike(7, 0), LocalTimeLike(10, 30), LocalTimeLike(15, 0))) {
+        for (time in listOf(LocalTimeLike(7, 0), LocalTimeLike(9, 30), LocalTimeLike(10, 30), LocalTimeLike(13, 10), LocalTimeLike(15, 0))) {
             val s = stateAt(time)
             val focusName = (s.ongoing ?: s.next)?.name
             if (focusName != null) {

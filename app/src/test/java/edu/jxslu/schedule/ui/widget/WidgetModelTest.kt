@@ -55,19 +55,36 @@ class WidgetModelTest {
     private fun stateAt(time: LocalTimeLike, courses: List<Course>, day: LocalDate = thursday) =
         buildTodayState(semester, slots, courses, day, time)
 
-    // ---------- 焦点：下一节 ----------
+    // ---------- 焦点：下一节（60 分钟窗口内） ----------
 
     @Test
-    fun nextCourse_usesTodayPageLabelAndCountdown() {
-        val state = stateAt(LocalTimeLike(7, 0), listOf(course(1, 3, 4)))
+    fun nextCourseWithinWindow_showsLabelAndCountdown() {
+        // 9:30 距 10:15 还有 45 分钟 ≤ 60 → 正常「下一节」课程卡
+        val state = stateAt(LocalTimeLike(9, 30), listOf(course(1, 3, 4)))
         val focus = buildWidgetSnapshot(state).focus as WidgetFocus.Course
 
         assertEquals("下一节 · 第3-4节", focus.label)
         assertEquals("课1", focus.name)
-        // 7:00 距 10:15 还有 195 分钟 > 60 → 退化为「上课时刻」文案
-        assertNull(focus.countdown)
-        assertEquals("10:15 上课", focus.fallbackNote)
+        assertEquals("还有 45 分钟上课", focus.countdown)
+        assertNull(focus.fallbackNote)
         assertNull(focus.progress)
+    }
+
+    /**
+     * 远课（下一节在 60 分钟窗口外）不冒充「下一节」：焦点位换成状态行
+     * （「今天还有 N 节课」+「下一节 14:00 开始」），列表仍是今天剩余课程。
+     * 与今日页同一取舍（DESIGN §3.3/§3.6）。
+     */
+    @Test
+    fun farAwayCourse_showsIdleCountInsteadOfNextCard() {
+        val state = stateAt(LocalTimeLike(7, 0), listOf(course(1, 3, 4), course(2, 5, 6)))
+        val snapshot = buildWidgetSnapshot(state)
+        val focus = snapshot.focus as WidgetFocus.Idle
+
+        assertEquals("今天还有 2 节课", focus.title)
+        assertEquals("下一节 10:15 开始", focus.detail)
+        assertEquals(WidgetDay.Today, snapshot.listDay)
+        assertEquals(2, snapshot.rows.size)
     }
 
     @Test
@@ -96,7 +113,8 @@ class WidgetModelTest {
 
     @Test
     fun rowMetaHasNoClockAndCompactsPosition() {
-        val state = stateAt(LocalTimeLike(7, 0), listOf(course(1, 3, 4), course(2, 5, 6)))
+        // 9:30：3-4 节在 60 分钟窗口内 → 进焦点卡，列表只剩 5-6 节
+        val state = stateAt(LocalTimeLike(9, 30), listOf(course(1, 3, 4), course(2, 5, 6)))
         val snapshot = buildWidgetSnapshot(state)
 
         // 焦点课在第 1 列（remaining 含焦点，listCourses 不含）
@@ -156,8 +174,10 @@ class WidgetModelTest {
 
     @Test
     fun listLayout_usesHeightBudgetAndMoreLabel() {
-        val courses = (1..6).map { course(it.toLong(), 1, 2) }
-        val snapshot = buildWidgetSnapshot(stateAt(LocalTimeLike(7, 0), courses))
+        // 6 门 3-4 节的课：9:30 时全部未开始，第一门 10:15 在 60 分钟窗口内 →
+        // 进焦点卡，列表剩 5 门（与预算公式配套的场景）
+        val courses = (1..6).map { course(it.toLong(), 3, 4) }
+        val snapshot = buildWidgetSnapshot(stateAt(LocalTimeLike(9, 30), courses))
 
         // 2×4（110×250）：焦点拿走一门，剩 5 行；预算 2 行 + 「还有 3 节」
         val narrow = snapshot.forSize(widgetMetricsFor(110, 250))
@@ -172,8 +192,8 @@ class WidgetModelTest {
 
     @Test
     fun compactLayout_dropsRowsOnNormalDay() {
-        val courses = (1..3).map { course(it.toLong(), 1, 2) }
-        val snapshot = buildWidgetSnapshot(stateAt(LocalTimeLike(7, 0), courses))
+        val courses = (1..3).map { course(it.toLong(), 3, 4) }
+        val snapshot = buildWidgetSnapshot(stateAt(LocalTimeLike(9, 30), courses))
 
         val model = snapshot.forSize(widgetMetricsFor(110, 110))
         assertEquals(0, model.rows.size)
@@ -419,6 +439,12 @@ class WidgetModelTest {
         val today = buildWidgetSnapshot(stateAt(LocalTimeLike(10, 30), listOf(course(1, 3, 4))))
         assertTrue(today.summary!!.startsWith("正在上课 · 第3-4节"))
         assertTrue(today.summary!!.contains("课1"))
+
+        // 远课（10:00 看 14:00 的课，窗口外）：摘要仍给今天第一门，直接时刻开头
+        val far = buildWidgetSnapshot(
+            stateAt(LocalTimeLike(10, 0), listOf(course(1, 5, 6), course(2, 3, 4, day = 5))),
+        )
+        assertTrue(far.summary!!.startsWith("14:00 课1"))
 
         val handoff = buildTodayState(
             semester, slots,

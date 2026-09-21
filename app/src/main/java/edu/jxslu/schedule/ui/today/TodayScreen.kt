@@ -13,7 +13,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -110,8 +109,10 @@ import edu.jxslu.schedule.domain.MONTH_DAY_FORMAT
  * 页面骨架：**顶部焦点卡（正在上课 / 下一节）+ 一列时间轴课程行 + 贴底固定区**。
  * - 焦点课只出现一次：焦点卡拿走第一门课，[TodayState.listCourses] 已把该课剔除，
  *   旧版「状态卡 + 列表首项」显示同一节课的问题不复存在。
- * - 时间只在行首出现一次（`10:15`），行内不再重复「第 N 节」与时刻——
- *   节次编号只在焦点卡标题里出现（`正在上课 · 第3-4节`）。
+ * - 「下一节」有 60 分钟准入窗口（[TodayState.next]）：更远的课不冒充「下一节」，
+ *   页面直接从列表开始 + 一行「今天的课 XX:XX 开始」轻提示。
+ * - 焦点卡与时间轴行同为**满宽卡片**（同外边距/内边距/圆角，缘对缘对齐）；
+ *   区分靠底色（主色 vs 课程色）与焦点卡状态行/进度条。节次编号只在焦点卡出现。
  * - 已结束的课不显示（保持既有取舍）；今天没有待上课程时才轮到「明天」上桌。
  * - 点课程（焦点卡/课程行）弹**只读详情**（[CourseDetailSheet]，与课表页同口径），
  *   编辑/删除是详情里的二级动作——直跳编辑器易误触。
@@ -477,20 +478,28 @@ private fun TodayContent(
                     targetState = focus,
                     contentKey = { it?.id },
                     transitionSpec = {
-                        fadeIn(tween(220)) togetherWith fadeOut(tween(150))
+                        fadeIn(tween(220)) togetherWith fadeOut(tween(220))
                     },
                     label = "todayFocus",
                 ) { f ->
-                    if (f == null) DoneBlock(state) else FocusCard(state, f, onOpenCourse)
+                    when {
+                        f != null -> FocusCard(state, f, onOpenCourse)
+                        // 远课态：下一节课在 60 分钟窗口外，不冒充「下一节」；
+                        // 给一行轻量提示交代落点（DESIGN §3.3），不弹焦点卡
+                        state.remaining.isNotEmpty() -> NextStartHint(state)
+                        else -> DoneBlock(state)
+                    }
                 }
             }
 
             // 「今天还有」只列焦点之外的课；正在上的课已在焦点卡里，不重复出现。
             // 焦点课若是当天唯一剩余（focus 取走它后列表为空），整段标题也不出现——
             // 「今天还有 1 节」下面空着比不显示更费解。
+            // 计数 = 列表里的课数（不含焦点卡那节）：旧版数 remaining，
+            // 「今天还有 2 节」下面只列 1 节，数字对不上页面课块数
             if (state.listCourses.isNotEmpty()) {
                 item(key = "remaining-header") {
-                    SectionLabel("今天还有 ${state.remaining.size} 节")
+                    SectionLabel("今天还有 ${state.listCourses.size} 节")
                 }
                 items(state.listCourses, key = { it.id }) { course ->
                     CourseTimelineRow(
@@ -515,10 +524,13 @@ private fun TodayContent(
 }
 
 /**
- * 顶部焦点卡：正在上的课，或今天下一节。
+ * 顶部焦点卡：正在上的课，或 60 分钟窗口内的下一节（DESIGN §3.3）。
  *
- * 与旧版「状态区」的差别：焦点课**从列表里拿走**（不再两处重复）；正在上课时补一条
- * 整门课进度条——「还剩 25 分钟」与「一共 80 分钟」是两件事，进度条把后者也交代了。
+ * 满宽卡片样式（2026-09-21 定稿，用户拍板）：主色 8% 底 + 左缘 3dp 主色竖条，
+ * 内部「状态行（正在上课 / 下一节 · 第N-M节 + 倒计时）→ 课名 → meta →
+ * （正在上课时）进度条」。与时间轴行（[CourseTimelineRow]）**同一卡片形态**：
+ * 同为满宽、同圆角、同内边距体系，两处卡片左右缘天然对齐；区分靠底色
+ * （焦点卡主色 / 时间轴行课程色）与状态行。焦点课从列表里拿走（不两处重复）；
  * 点卡片弹只读详情（编辑/删除是详情里的二级动作，与课表页同口径）。
  */
 @Composable
@@ -536,26 +548,22 @@ private fun FocusCard(
         state.ongoingCountdown
             ?: state.minutesToOngoingEnd?.let { "还有 $it 分钟下课" }
     } else {
-        val minutes = state.minutesToNext
-        when {
-            minutes == null -> null
-            minutes <= 60 -> "还有 $minutes 分钟上课"
-            else -> "${clockOf(state.slots, focus)} 上课"
-        }
+        // 「下一节」进焦点卡的前提就是 ≤60 分钟（TodayState 的准入窗口），直接说分钟数
+        state.minutesToNext?.let { "还有 $it 分钟上课" }
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .height(IntrinsicSize.Min)
-            .clip(RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(primary.copy(alpha = 0.08f))
-            .clickable {
+            .clickable(onClickLabel = "查看课程") {
                 haptics.tap()
                 onOpenCourse(focus)
             },
     ) {
+        // 左缘主色竖条：焦点卡的视觉锚
         Box(
             Modifier
                 .width(3.dp)
@@ -565,7 +573,7 @@ private fun FocusCard(
         Column(
             Modifier
                 .weight(1f)
-                .padding(horizontal = 13.dp, vertical = 11.dp),
+                .padding(horizontal = 11.dp, vertical = 13.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -597,9 +605,9 @@ private fun FocusCard(
             Text(
                 text = metaLine(state.slots, focus),
                 style = MaterialTheme.typography.bodySmall,
-                color = onSurface.copy(alpha = 0.62f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                color = onSurface.copy(alpha = 0.62f),
             )
             if (ongoing) {
                 val progress = state.ongoingProgress
@@ -610,6 +618,24 @@ private fun FocusCard(
             }
         }
     }
+}
+
+/**
+ * 远课态的轻量提示（DESIGN §3.3）：下一节课在 60 分钟窗口外时不显示「下一节」焦点卡，
+ * 给一行轻提示交代落点（「今天的课 14:00 开始」），随焦点卡淡入淡出同一动画通道。
+ */
+@Composable
+private fun NextStartHint(state: TodayState) {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val first = state.remaining.firstOrNull() ?: return
+    Text(
+        text = "今天的课 ${clockOf(state.slots, first)} 开始",
+        style = MaterialTheme.typography.bodyMedium,
+        color = onSurface.copy(alpha = 0.55f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    )
 }
 
 /** 自绘进度条：不引 M3 的 LinearProgressIndicator，免去两端圆角/端点圆点的版本差异。 */
@@ -674,12 +700,13 @@ private fun SectionLabel(text: String) {
 }
 
 /**
- * 时间轴课程行：行首时刻（`10:15`）+ 课程色卡。
+ * 时间轴课程行：**满宽课程色卡**（2026-09-21 改版，用户拍板）。
  *
- * 行内只在副行放「@地点 · 教师」——时刻在行首、节次在焦点卡，重复摆放是旧版显乱的主因；
- * 2026-09-19 色卡纵向内边距 9dp→13dp 加高（DESIGN §3.3，用户要求卡片适当加高），
- * 整行约 68dp，4 节课一屏仍放得下。
- * **整行**可点弹只读详情（含时刻列，避免"点了没反应"），无行内删除（删除在详情二级动作）。
+ * 与焦点卡（[FocusCard]）**同一卡片形态**：同为满宽、同圆角 12dp、同内边距体系
+ * （horizontal 16dp + 卡内 11/13dp），两处卡片左右缘天然对齐；区分靠底色
+ * （焦点卡主色 8% / 时间轴行课程色 16%）与焦点卡的状态行/进度条。
+ * 卡内三行：课名 → 时刻范围+@地点 · 教师（metaLine 已含 `10:15–11:40` 起止，
+ * 旧版行首时刻列删除后时刻信息仍完整）；整行可点弹只读详情。
  */
 @Composable
 private fun CourseTimelineRow(
@@ -696,27 +723,17 @@ private fun CourseTimelineRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = 0.16f))
             .clickable(onClickLabel = "查看课程") {
                 haptics.tap()
                 onClick()
-            }
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.Top,
+            },
     ) {
-        Text(
-            text = clockOf(slots, course),
-            style = MaterialTheme.typography.labelLarge,
-            color = onSurface.copy(alpha = 0.72f),
-            modifier = Modifier
-                .width(50.dp)
-                // 与色卡内课名同一起排（色卡上下内边距 13dp），两列文字视觉对齐
-                .padding(top = 13.dp),
-        )
         Column(
-            modifier = Modifier
+            Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(accent.copy(alpha = 0.16f))
                 .padding(horizontal = 11.dp, vertical = 13.dp),
         ) {
             Text(

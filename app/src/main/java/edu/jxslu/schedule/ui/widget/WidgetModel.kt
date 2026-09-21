@@ -453,6 +453,8 @@ fun WidgetSnapshot.forSize(metrics: WidgetMetrics): WidgetModel {
  *
  * 分支（DESIGN §3.6，与今日页同一口径）：
  * - 今天还有待上课程 → 焦点卡（正在上课带进度条）+ 今日剩余列表
+ * - 下一节课在 60 分钟窗口外（远课）→ 焦点位给状态行（「今天还有 N 节课」+
+ *   「下一节 14:00 开始」），不冒充「下一节」；列表仍是今天剩余课程
  * - 今天上完 / 今天没课 → **明日接棒**：状态行 + 「明天 · 周五 · 3 节」+ 明日列表；
  *   明日也无课 → 状态行 + 「明天没有课，可以放松一下」
  * - 不在学期内 → 假期中，没有列表
@@ -488,12 +490,22 @@ fun buildWidgetSnapshot(state: TodayState, week: WidgetWeek? = null): WidgetSnap
 private fun buildFocus(state: TodayState): WidgetFocus {
     val course = state.focus
     if (course == null) {
-        // 焦点为空：假期中 / 今天上完 / 今天没课，三种文案
+        // 焦点为空：假期中 / 远课 / 今天上完 / 今天没课，四种文案
         return when {
             !state.inTerm -> WidgetFocus.Idle(
                 title = "假期中",
                 detail = "未在学期内，去「我的」设置开学日期",
             )
+
+            // 远课：今天还有待上课，但下一节在 60 分钟窗口外（与今日页同一取舍，
+            // 不冒充「下一节」）——状态行交代「还有几节 + 什么时候开始」
+            state.remaining.isNotEmpty() -> {
+                val first = state.remaining.first()
+                WidgetFocus.Idle(
+                    title = "今天还有 ${state.remaining.size} 节课",
+                    detail = "下一节 ${clockOf(state.slots, first)} 开始",
+                )
+            }
 
             state.todayAllDone -> WidgetFocus.Idle(
                 title = "今天的课都上完了",
@@ -525,9 +537,8 @@ private fun buildFocus(state: TodayState): WidgetFocus {
             ?: state.minutesToOngoingEnd?.let { "还有 $it 分钟下课" }
         fallback = null
     } else {
-        // ≤60 分钟说还剩多久；更远直接给上课时刻（避免「还有 1430 分钟上课」这种废话）
-        val minutes = state.minutesToNext
-        countdown = minutes?.takeIf { it <= 60 }?.let { "还有 $it 分钟上课" }
+        // 「下一节」进焦点卡的前提就是 ≤60 分钟（TodayState 准入窗口），直接说分钟数
+        countdown = state.minutesToNext?.let { "还有 $it 分钟上课" }
         fallback = if (countdown == null) "${clockOf(state.slots, course)} 上课" else null
     }
 
@@ -558,6 +569,12 @@ private fun buildSummary(state: TodayState): String? {
             .joinToString(" ")
     }
     if (!state.inTerm) return null
+    // 远课：焦点空但今天还有课，摘要给今天第一门（不冒充「下一节」，直接给时刻）
+    state.remaining.firstOrNull()?.let { first ->
+        return listOf(clockOf(state.slots, first), first.name, metaOf(first))
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    }
     val first = state.tomorrowCourses.firstOrNull() ?: return null
     return listOf("明天", clockOf(state.slots, first), first.name, metaOf(first))
         .filter { it.isNotBlank() }
