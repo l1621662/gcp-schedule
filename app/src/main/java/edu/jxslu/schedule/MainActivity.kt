@@ -221,6 +221,8 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     onOpenEbike = { SubpageActivity.start(context, SubpageScreen.EBIKE) },
                     // 校园卡付款码页（DESIGN §3.10）：开关开时今日页卡片直达
                     onOpenPayCode = { SubpageActivity.start(context, SubpageScreen.PAY_CODE) },
+                    // 校园卡消费流水页（DESIGN §4.19）：今日页余额弹窗入口
+                    onOpenStatement = { SubpageActivity.start(context, SubpageScreen.CAMPUS_STATEMENT) },
                     // 快捷方式网格：长按图标进设置页（null）；Snackbar「去设置」带失败条目
                     // id 直达该条目的编辑弹层（DESIGN §3.8 的就地修正闭环）
                     onOpenShortcuts = { focusItemId ->

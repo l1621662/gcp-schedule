@@ -7,6 +7,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -52,7 +60,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import edu.jxslu.schedule.ui.common.AppNoticeVisuals
 import edu.jxslu.schedule.ui.common.AppSnackbarHost
-import edu.jxslu.schedule.ui.common.LoadingHint
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowLeft01
@@ -207,13 +214,61 @@ private fun BalanceRow(
 
 @Composable
 private fun LoadingBody() {
-    LoadingHint(
-        "正在登录校园卡",
-        subtitle = "连接水宝宝并获取付款码…",
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 64.dp),
+    // 骨架占位（DESIGN §3.10 2026-09-21）：与成功态同布局（QR 方图 + 条码条 + 两行文本），
+    // 码渲染完成无缝替换，避免布局高度跳变；呼吸动画复用 LoadingHint 同款缓动
+    PayCodeSkeleton(hint = "正在登录校园卡，连接水宝宝并获取付款码…")
+}
+
+/**
+ * 付款码骨架：成功态 QR 图为 `fillMaxWidth` 方图（宽=屏宽-32dp）、条码 `fillMaxWidth`
+ * 低高度圆角条、下面两行文本——骨架逐块对应，出现时零位移。
+ */
+@Composable
+private fun PayCodeSkeleton(hint: String) {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeletonBreath")
+    val alpha by transition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.5f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(durationMillis = 700),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "skeletonAlpha",
     )
+    val shimmer = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(14.dp))
+                .background(shimmer),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(shimmer),
+        )
+        Box(
+            modifier = Modifier
+                .width(200.dp)
+                .height(14.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(shimmer),
+        )
+        Text(
+            text = hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+            textAlign = TextAlign.Center,
+        )
+    }
 }
 
 @Composable
@@ -252,13 +307,8 @@ private fun SuccessBody(
     onNext: () -> Unit,
 ) {
     if (bitmaps == null) {
-        // 码位图尚未渲染完成（Bitmap 生成在 IO 线程）：水滴呼吸占位，与页内其余加载态同语言
-        LoadingHint(
-            "正在生成付款码",
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(340.dp),
-        )
+        // 码位图尚未渲染完成（Bitmap 生成在 IO 线程）：同布局骨架，占位与成品无高差
+        PayCodeSkeleton(hint = "正在生成付款码…")
         return
     }
     Column(

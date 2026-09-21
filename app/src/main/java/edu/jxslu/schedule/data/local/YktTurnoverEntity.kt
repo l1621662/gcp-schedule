@@ -93,6 +93,10 @@ interface YktTurnoverDao {
     @Query("SELECT MAX(jndatetime) FROM ykt_turnovers")
     suspend fun latestJndatetime(): Long?
 
+    /** 某时刻之后的收入流水条数（充值到账判定：出现晚于下单时刻的新记录即到账）。 */
+    @Query("SELECT COUNT(*) FROM ykt_turnovers WHERE income = 1 AND jndatetime > :epochMs")
+    suspend fun countIncomeSince(epochMs: Long): Int
+
     /** upsert（orderId 冲突即覆盖——余额快照等字段可能随服务端重算更新）。 */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<YktTurnoverEntity>)

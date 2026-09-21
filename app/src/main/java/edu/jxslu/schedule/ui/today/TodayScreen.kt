@@ -134,6 +134,8 @@ fun TodayScreen(
     onOpenEbike: () -> Unit = {},
     /** 校园卡付款码页（DESIGN §3.10，SubpageActivity 独立窗口；开关关时无入口） */
     onOpenPayCode: () -> Unit = {},
+    /** 校园卡消费流水页（DESIGN §4.19，今日页余额弹窗入口） */
+    onOpenStatement: () -> Unit = {},
     /** 快捷方式设置页（长按图标进；null=不定位，非 null=打开后直接编辑该条目，DESIGN §3.8） */
     onOpenShortcuts: (String?) -> Unit = {},
     /** 与开水页共享的 Activity 作用域实例；开水卡的解锁进度与登录态两页一致 */
@@ -147,6 +149,17 @@ fun TodayScreen(
     val waterCardEnabled by viewModel.waterCardEnabled.collectAsStateWithLifecycle()
     val ebikeCardEnabled by viewModel.ebikeCardEnabled.collectAsStateWithLifecycle()
     val campusCardEnabled by viewModel.campusCardEnabled.collectAsStateWithLifecycle()
+    // 校园卡余额与充值/到账（DESIGN §3.10/§4.19）：与设置页共享同一 VM 类，
+    // 依赖全是 Graph 单例；init 内部自检开关，关时零网络动作
+    val campusViewModel: edu.jxslu.schedule.ui.campus.CampusCardViewModel = viewModel(
+        factory = edu.jxslu.schedule.ui.campus.CampusCardViewModel.Factory(
+            LocalContext.current.applicationContext,
+        ),
+    )
+    val campusBalance by campusViewModel.balance.collectAsStateWithLifecycle()
+    val campusArrival by campusViewModel.arrivalState.collectAsStateWithLifecycle()
+    var showCampusEntrySheet by remember { mutableStateOf(false) }
+    var showCampusRechargeSheet by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Course?>(null) }
     var editorOpen by remember { mutableStateOf(false) }
     var detailCourse by remember { mutableStateOf<Course?>(null) }
@@ -220,9 +233,16 @@ fun TodayScreen(
             } else {
                 null
             },
-            // 校园卡付款码卡（DESIGN §3.10）：默认关；点击进付款码页（FLAG_SECURE）
+            // 校园卡付款码卡（DESIGN §3.10）：默认关；点击进付款码页（FLAG_SECURE）；
+            // 右侧余额可点 → 功能入口弹层（充值/流水/认证码，2026-09-21 追加）
             campusCard = if (campusCardEnabled) {
-                { CampusCardQuickCard(onOpenPayCode) }
+                {
+                    CampusCardQuickCard(
+                        onOpen = onOpenPayCode,
+                        balanceText = campusBalance?.let { "¥%.2f".format(it.totalFen / 100.0) },
+                        onBalanceClick = { showCampusEntrySheet = true },
+                    )
+                }
             } else {
                 null
             },
@@ -338,6 +358,81 @@ fun TodayScreen(
             },
             onDismiss = { pendingDelete = null },
         )
+    }
+
+    // 校园卡：点余额的功能入口弹层 + 充值弹层 + 到账成功弹窗（DESIGN §3.10/§4.19）
+    if (showCampusEntrySheet) {
+        edu.jxslu.schedule.ui.campus.CampusEntrySheet(
+            balanceFen = campusBalance?.totalFen,
+            onDismiss = { showCampusEntrySheet = false },
+            onOpenRecharge = {
+                showCampusEntrySheet = false
+                showCampusRechargeSheet = true
+            },
+            onOpenStatement = {
+                showCampusEntrySheet = false
+                onOpenStatement()
+            },
+            onOpenPayCode = {
+                showCampusEntrySheet = false
+                onOpenPayCode()
+            },
+        )
+    }
+    if (showCampusRechargeSheet) {
+        val activityContext = LocalContext.current
+        edu.jxslu.schedule.ui.campus.RechargeSheet(
+            balanceFen = campusBalance?.totalFen,
+            onDismiss = { showCampusRechargeSheet = false },
+            onLaunch = { yuan ->
+                showCampusRechargeSheet = false
+                campusViewModel.recharge(
+                    yuan,
+                    // Activity context 直接启动（不设 NEW_TASK）：返回无缝、无顶栏跳动
+                    launchExternal = { intent ->
+                        runCatching {
+                            (activityContext as? android.app.Activity)?.startActivity(intent)
+                                ?: activityContext.startActivity(
+                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            true
+                        }.getOrDefault(false)
+                    },
+                ) { notice ->
+                    scope.launch {
+                        snackbar.showSnackbar(edu.jxslu.schedule.ui.common.AppNoticeVisuals(notice.text, tone = notice.tone))
+                    }
+                }
+            },
+        )
+    }
+    val campusArrived = campusArrival as? edu.jxslu.schedule.ui.campus.CampusCardViewModel.ArrivalState.Arrived
+    if (campusArrived != null) {
+        edu.jxslu.schedule.ui.campus.CampusArrivalDialog(
+            arrived = campusArrived,
+            onDismiss = { campusViewModel.dismissArrival() },
+            onOpenPayCode = onOpenPayCode,
+        )
+    }
+    // 「正在确认到账」弹窗（微信返回且未立即到账时；关闭不影响轮询）
+    val campusPendingConfirm by campusViewModel.pendingConfirmVisible.collectAsStateWithLifecycle()
+    val campusWatching = campusArrival as? edu.jxslu.schedule.ui.campus.CampusCardViewModel.ArrivalState.Watching
+    if (campusPendingConfirm && campusWatching != null) {
+        edu.jxslu.schedule.ui.campus.CampusPendingConfirmDialog(
+            orderFen = campusWatching.orderFen,
+            onDismiss = { campusViewModel.dismissPendingConfirm() },
+        )
+    }
+    // 从微信返回的瞬间立即补检一轮（充值从今日页发起的场景）
+    val todayLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(todayLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                campusViewModel.onHostResume()
+            }
+        }
+        todayLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { todayLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 }
 
@@ -895,11 +990,17 @@ private fun EbikeQuickCard(onOpen: () -> Unit) {
 
 /**
  * 水宝宝一卡通卡（DESIGN §3.10，2026-09-20 改名，原「校园卡付款码卡」）：
- * 与开水卡同款 1dp 描边形态；点卡片进付款码页。
+ * 与开水卡同款 1dp 描边形态；点卡片进付款码页；右侧卡内余额可点，
+ * 弹出功能入口弹层（充值/消费流水/认证码，DESIGN §3.10 2026-09-21 追加）。
  * 开关（我的 → 扩展服务 → 水宝宝一卡通）默认关——涉及凭证与资金等价物，用户显式开启才上桌。
  */
 @Composable
-private fun CampusCardQuickCard(onOpen: () -> Unit) {
+private fun CampusCardQuickCard(
+    onOpen: () -> Unit,
+    /** 卡内余额文案（如 "¥19.95"）；null = 开关关/未取到 → 不显示余额区 */
+    balanceText: String?,
+    onBalanceClick: () -> Unit,
+) {
     val primary = MaterialTheme.colorScheme.primary
     val onSurface = MaterialTheme.colorScheme.onSurface
     val shape = RoundedCornerShape(14.dp)
@@ -940,6 +1041,22 @@ private fun CampusCardQuickCard(onOpen: () -> Unit) {
                 color = onSurface.copy(alpha = 0.55f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (balanceText != null) {
+            // 余额可点区：clickable 在父级 clickable 之内，点击只命中本区不冒泡触发卡片跳转
+            Text(
+                text = balanceText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = "一卡通功能") {
+                        haptics.tap()
+                        onBalanceClick()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }
     }

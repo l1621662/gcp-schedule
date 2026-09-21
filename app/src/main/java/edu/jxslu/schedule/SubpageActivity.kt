@@ -115,6 +115,7 @@ class SubpageActivity : ComponentActivity() {
             SubpageScreen.CAMPUS_CARD_SETTINGS -> CampusCardSettingsScreen(
                 onBack = onBack,
                 onOpenStatement = { SubpageActivity.start(this, SubpageScreen.CAMPUS_STATEMENT) },
+                onOpenPayCode = { SubpageActivity.start(this, SubpageScreen.PAY_CODE) },
             )
             SubpageScreen.PAY_CODE -> PayCodeScreen(
                 onBack = onBack,

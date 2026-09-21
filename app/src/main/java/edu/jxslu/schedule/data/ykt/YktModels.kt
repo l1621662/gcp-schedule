@@ -76,6 +76,28 @@ data class YktCard(
     val lostflag: String?,
 )
 
+/** 充值下单结果（DESIGN §4.19「充值」）。 */
+sealed interface YktRechargeOrder {
+
+    /** 服务端订单号（收银台兜底跳转与日志排查用；不进任何日志）。 */
+    val orderId: String
+
+    /**
+     * 直拉微信：`weixin://wap/pay?prepay_id=…`（微信 H5 支付，实测免密渠道）。
+     * `ACTION_VIEW` 即可拉起微信支付界面；prepay_id 约 5 分钟有效。
+     */
+    data class WechatPay(
+        override val orderId: String,
+        val wechatUrl: String,
+    ) : YktRechargeOrder
+
+    /** 兜底：官方收银台 URL（服务端 302 Location 下发；直拉链路失败时浏览器打开）。 */
+    data class Cashier(
+        override val orderId: String,
+        val cashierUrl: String,
+    ) : YktRechargeOrder
+}
+
 /** 单条消费流水（`personal/turnover` 的 records 元素，只建模展示所需子集）。 */
 data class YktTurnover(
     /** 交易时间原文（`2026-09-20 18:50:xx`）。 */

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -130,11 +129,12 @@ private fun AppNoticeCard(data: SnackbarData) {
             text = visuals.message,
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurface,
-            // 长文案（失败原因）不该被截断：给足三行，仍超才省略
+            // 长文案（失败原因）不该被截断：给足三行，仍超才省略。
+            // 不要 heightIn(min=…)：被撑到比行盒高时 Text 内容贴顶绘制，
+            // 文字中心会整体高于图标中心（单行 20sp 被撑到 24dp → 偏上 2dp），
+            // CenterVertically 就失准了；行高交给文本自身决定
             maxLines = 3,
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 24.dp),
+            modifier = Modifier.weight(1f),
         )
         visuals.actionLabel?.let { label ->
             Spacer(Modifier.width(4.dp))

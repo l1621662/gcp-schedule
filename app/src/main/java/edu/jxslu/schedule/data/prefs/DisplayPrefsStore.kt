@@ -297,6 +297,31 @@ class DisplayPrefsStore(private val context: Context) {
     }.distinctUntilChanged()
 
     /**
+     * 未确认充值（DESIGN §4.19「充值」）：下单成功的金额（分）+ 下单时刻（epoch 毫秒）。
+     * **持久化**——到账检测轮询在内存，微信支付期间进程可能被系统回收（MIUI 激进省电），
+     * 重启后凭此恢复等待态并立即补检；到账/超时/取消时清除。金额本身非敏感数据。
+     */
+    val pendingRecharge: Flow<Pair<Long, Long>?> = context.displayDataStore.data.map { p ->
+        val fen = p[KEY_PENDING_RECHARGE_FEN]
+        val at = p[KEY_PENDING_RECHARGE_AT]
+        if (fen != null && at != null) fen to at else null
+    }.distinctUntilChanged()
+
+    suspend fun setPendingRecharge(fen: Long, at: Long) {
+        context.displayDataStore.edit {
+            it[KEY_PENDING_RECHARGE_FEN] = fen
+            it[KEY_PENDING_RECHARGE_AT] = at
+        }
+    }
+
+    suspend fun clearPendingRecharge() {
+        context.displayDataStore.edit {
+            it.remove(KEY_PENDING_RECHARGE_FEN)
+            it.remove(KEY_PENDING_RECHARGE_AT)
+        }
+    }
+
+    /**
      * 快捷方式条目列表。键缺失或脏 JSON 回退内置预设（口径见 [Shortcuts.decode]）；
      * 读路径顺带做预设目标迁移（DESIGN §4.16：历史原值 → 当前预设，自定义不动）。
      * distinctUntilChanged：DataStore 任何键的写入都会重发这里，值没变就不该打扰下游。
@@ -642,6 +667,8 @@ class DisplayPrefsStore(private val context: Context) {
         val KEY_EBIKE_PENDING_DELETE = stringSetPreferencesKey("ebike_pending_delete")
         val KEY_EBIKE_RECENT_IDS = stringPreferencesKey("ebike_recent_ids")
         val KEY_CAMPUS_CARD_ENABLED = booleanPreferencesKey("campus_card_enabled")
+        val KEY_PENDING_RECHARGE_FEN = longPreferencesKey("pending_recharge_fen")
+        val KEY_PENDING_RECHARGE_AT = longPreferencesKey("pending_recharge_at")
         val KEY_SHORTCUTS_JSON = stringPreferencesKey("shortcuts_json")
         val KEY_SCORE_INCLUDE_FREE_ELECTIVES = booleanPreferencesKey("score_include_free_electives")
         val KEY_SCORE_GROUP_BY_YEAR = booleanPreferencesKey("score_group_by_year")

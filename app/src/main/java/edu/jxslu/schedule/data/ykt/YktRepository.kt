@@ -22,6 +22,13 @@ class YktRepository(private val client: YktClient) {
     companion object {
         /** 流水分页大小（服务端尊重 size；100/页时 726 条全量约 8 页，进页首屏 1 页覆盖近 2 个月）。 */
         const val TURNOVER_PAGE_SIZE = 100
+
+        /** 充值 feeitemid（frontInfo.getFrontConfig.recharge，2026-09-21 实测）。 */
+        const val FEE_ITEM_ID_RECHARGE = "401"
+
+        /** 微信充值渠道（getpayinfo 的 payList 单条：CAMPUSCARD/「微信充值」payid=63）。 */
+        const val PAY_TYPE_ID_WECHAT = "63"
+        const val PAY_TYPE_WECHAT = "CAMPUSCARD"
     }
 
     /** 验证登录可用并返回 token（不缓存）——设置页「开启即验证」与登录共用。 */
@@ -75,6 +82,185 @@ class YktRepository(private val client: YktClient) {
         }
         val fresh = doLogin(username, password)
         return load(fresh) ?: throw YktException.Protocol("登录成功但取余额失败")
+    }
+
+    // ------------------------------------------------------------------
+    // 充值（DESIGN §4.19「充值」；用户主动触发，无自动充值）
+    // ------------------------------------------------------------------
+
+    /**
+     * 创建充值订单并返回官方收银台 URL（App 用浏览器打开完成支付）。
+     *
+     * 链路：`queryCard?scene=recharge` 取卡（**account 是 6 位数字卡号，不是学号**，
+     * 2026-09-21 实测——`yktcard` 字段必须用查询返回的 account）→
+     * 组表单（`feeitemid=401`、`tranamt` 元浮点、`yktcard=account`…）→
+     * [edu.jxslu.schedule.domain.YktRechargeSign.signed] 签名 →
+     * `POST /charge/order/thirdOrder` → 302 Location 即收银台 URL。
+     *
+     * thirdOrder 成功分支的响应形态已实测（302 Location，见下）；同时保留
+     * JSON/HTML 兜底。签名密钥/字段是前端公开常量，平台改版会失效——失败统一
+     * 给「平台可能已改版」口径。
+     */
+    suspend fun rechargeCreate(
+        username: String,
+        password: String,
+        /** 金额（元），两位小数内；服务端口径即元，不乘 100。 */
+        yuan: String,
+    ): YktRechargeOrder {
+        val token = cachedToken ?: doLogin(username, password)
+
+        // [1] 充值场景的卡（scene=recharge）：取第一张非挂失卡；account = 6 位卡号
+        val cardsRaw = client.get("/berserker-app/ykt/tsm/queryCard?scene=recharge", token = token)
+        if (cardsRaw.httpCode == 401) {
+            throw YktException.Credential("登录状态已失效，请重新打开本页")
+        }
+        val cardsEnv = parse(cardsRaw)
+        if (cardsEnv.code != 200) {
+            throw YktException.Protocol("取卡信息失败：${cardsEnv.messageOrBlank.ifBlank { cardsEnv.code.toString() }}")
+        }
+        val card = YktModels.cardsFrom(cardsEnv.data).firstOrNull { it.lostflag == null || it.lostflag == "0" }
+            ?: throw YktException.Protocol("没有可充值的卡账户（可能已挂失或冻结）")
+        val account = card.account
+
+        // [2] 组表单 + 签名（字段与前端 confirm() 一致；appid/密钥是前端公开常量。
+        //     appid 业务字段必须带——缺了服务端会 302 到无 orderid 的错误页，2026-09-21 真机实测）
+        val form = mapOf(
+            "feeitemid" to FEE_ITEM_ID_RECHARGE,
+            "appid" to edu.jxslu.schedule.domain.YktRechargeSign.APP_ID_VALUE,
+            "tranamt" to yuan,
+            "source" to "app",
+            "synjones-auth" to "bearer $token",
+            "yktcard" to account,
+            "synAccessSource" to "h5",
+        )
+        val signed = edu.jxslu.schedule.domain.YktRechargeSign.signed(form)
+        val raw = client.postFormPlain(
+            "/charge/order/thirdOrder",
+            signed,
+            referer = YktClient.BASE + "/campus-card/",
+        )
+
+        // [3] 成功形态 = 302 Location = 官方收银台完整 URL（2026-09-21 实测）：
+        //   /payment?orderid=<id>&token=<JWT>（收银台从 URL 读 token/orderid 建立登录态）。
+        val location = raw.location
+        if (raw.httpCode in 300..399 && location != null) {
+            val orderId = orderIdFromUrl(location)
+                // 只暴露 path 与 query 键名（不含值），token 不进任何提示
+                ?: throw YktException.Protocol(
+                    "下单重定向未带订单号（跳转至 ${location.substringBefore('?')}，平台可能已改版）",
+                )
+            // [4] 直拉微信：收银台的「立即付款」一步等效于 blade-pay/pay → checkmweb，
+            //     该校微信充值渠道免密（实测），App 内三跳直达 weixin:// 拉起微信支付。
+            payDirect(orderId, token)?.let { return it }
+            return YktRechargeOrder.Cashier(orderId = orderId, cashierUrl = location)
+        }
+        // 兜底：非 302（平台可能改成 JSON/HTML 应答），从响应体提取
+        val orderId = extractOrderId(raw.text, raw.httpCode)
+            ?: throw YktException.Protocol(
+                if (raw.httpCode in 200..299) "下单未返回订单号（平台可能已改版）"
+                else "下单失败（HTTP ${raw.httpCode}，平台可能已改版）",
+            )
+        return YktRechargeOrder.Cashier(
+            orderId = orderId,
+            cashierUrl = buildCashierUrl(orderId, token),
+        )
+    }
+
+    /**
+     * 直拉微信链路（等效收银台「立即付款」，2026-09-21 实测，全部只发起支付不扣款——
+     * 扣款只发生在用户在微信内确认之后）：
+     *
+     * 1. `POST /blade-pay/pay`（表单 + SIGN + `synjones-auth` **header**，缺 header 报
+     *    「未获取到用户信息」）：`paytypeid=63/paytype=CAMPUSCARD/paystep=2/orderid/redirect_url`；
+     *    响应 `data.paysubmit` = HTML form，action = `wx.tenpay.com/.../checkmweb?prepay_id=…`；
+     * 2. GET checkmweb（**Referer 必须为商户域名**，微信硬校验）→ 200 HTML 中间页；
+     * 3. 中间页含 `weixin://wap/pay?prepayid%3D…` → `ACTION_VIEW` 直接拉起微信。
+     *
+     * 任一环失败返回 null（上层降级打开收银台 URL，不阻断充值）。
+     */
+    private suspend fun payDirect(orderId: String, token: String): YktRechargeOrder.WechatPay? {
+        // [1] 发起支付（免密渠道；若平台日后开启密码，这一步会报错 → 走收银台兜底）
+        val payForm = mapOf(
+            "paytypeid" to PAY_TYPE_ID_WECHAT,
+            "paytype" to PAY_TYPE_WECHAT,
+            "paystep" to "2",
+            "orderid" to orderId,
+            "redirect_url" to "${YktClient.BASE}/payment/?name=result",
+            "synAccessSource" to "h5",
+        )
+        val payRaw = runCatching {
+            client.postFormAuth(
+                "/blade-pay/pay",
+                edu.jxslu.schedule.domain.YktRechargeSign.signed(payForm),
+                referer = YktClient.BASE + "/payment/",
+                token = token,
+            )
+        }.getOrNull() ?: return null
+        val payEnv = runCatching { parse(payRaw) }.getOrNull()
+        if (payEnv?.code != 200) return null
+        val paysubmit = ((payEnv.data as? JsonObject)?.get("paysubmit") as? JsonPrimitive)?.content
+            ?: return null
+        // [2] checkmweb（Referer=商户域名，微信硬校验；followRedirects(false) 也无妨——中间页是 200 HTML）
+        val action = Regex("action=\"([^\"]+)\"").find(paysubmit)?.groupValues?.get(1)
+            ?: return null
+        val mid = runCatching {
+            client.get(
+                path = "",
+                absoluteUrl = action,
+                referer = "${YktClient.BASE}/payment/",
+            )
+        }.getOrNull() ?: return null
+        if (mid.httpCode != 200) return null
+        // [3] 中间页抓 weixin:// 拉起链接（HTML 实体未转义，原文即 weixin://wap/pay?prepayid%3D…）
+        val wechatUrl = Regex("weixin://wap/pay\\?[^\"'\\s]+").find(mid.text)?.value
+            ?: return null
+        return YktRechargeOrder.WechatPay(orderId = orderId, wechatUrl = wechatUrl)
+    }
+
+    /** 删除未支付订单（用户取消支付时的兜底；失败静默——收银台侧也会超时关闭）。 */
+    suspend fun rechargeCancel(orderId: String): Boolean {
+        val form = edu.jxslu.schedule.domain.YktRechargeSign.signed(mapOf("orderid" to orderId))
+        return runCatching {
+            val raw = client.postFormPlain(
+                "/charge/order/deleteOrder",
+                form,
+                referer = YktClient.BASE + "/payment/",
+            )
+            raw.httpCode in 200..299
+        }.getOrDefault(false)
+    }
+
+    /** 官方收银台 URL 兜底拼法（正常路径 = 服务端 302 Location 直发，不走这里）。 */
+    private fun buildCashierUrl(orderId: String, token: String): String {
+        val q = listOf(
+            "synjones-auth" to token,
+            "orderid" to orderId,
+        ).joinToString("&") { (k, v) ->
+            java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
+        }
+        return "${YktClient.BASE}/payment/?$q"
+    }
+
+    /** 从 URL（302 Location）提取 orderid 参数。 */
+    private fun orderIdFromUrl(url: String): String? =
+        Regex("[?&]orderid=([A-Za-z0-9_-]{4,64})").find(url)?.groupValues?.get(1)
+
+    /** 从下单响应提取 orderid：JSON data 三形态 + HTML 兜底。 */
+    private fun extractOrderId(text: String, httpCode: Int): String? {
+        // JSON 形态
+        runCatching { parse(YktClient.Raw(httpCode, text)) }.getOrNull()?.let { env ->
+            (env.data as? JsonObject)?.let { d ->
+                sequenceOf("orderid", "orderId").forEach { k ->
+                    (d[k] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+                ((d["order"] as? JsonObject))?.let { o ->
+                    (o["orderid"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+            }
+        }
+        // HTML 兜底：orderid=xxx / name="orderid" value="xxx"
+        Regex("orderid[=:\"'\\s]+([A-Za-z0-9_-]{6,64})").find(text)?.let { return it.groupValues[1] }
+        return null
     }
 
     /**

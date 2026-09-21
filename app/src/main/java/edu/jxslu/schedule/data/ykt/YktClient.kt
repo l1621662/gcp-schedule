@@ -33,28 +33,48 @@ class YktClient private constructor(private val http: OkHttpClient) {
             OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(20, TimeUnit.SECONDS)
+                // 充值下单（thirdOrder）靠 **302 Location** 下发收银台 URL——必须拿到原始
+                // 302 而不是跟随后的落地页；其余端点全部 200 JSON，不依赖自动跟随。
+                .followRedirects(false)
+                .followSslRedirects(false)
                 .build(),
         )
     }
 
-    /** 一次请求的原始结果：HTTP 状态码 + 响应文本（已剥 BOM）。 */
-    data class Raw(val httpCode: Int, val text: String)
+    /** 一次请求的原始结果：HTTP 状态码 + 响应头（常用）+ 响应文本（已剥 BOM）。 */
+    data class Raw(
+        val httpCode: Int,
+        val text: String,
+        /** 302 场景需要 Location；其余场景常为 null。 */
+        val location: String? = null,
+    )
 
     /**
-     * GET。header 需要鉴权时传 [token]（拼 `synjones-auth: bearer <token>`）。
+     * GET。header 需要鉴权时传 [token]（拼 `synjones-auth: bearer <token>`）；
+     * [absoluteUrl] 请求站外 URL（微信 H5 支付中间页）；
+     * [referer] 覆盖默认 Referer（微信 checkmweb 硬校验 referer 为商户域名）。
      * 网络异常抛 [YktException.Network]；不自动重试。
      */
-    suspend fun get(path: String, token: String? = null): Raw = withContext(Dispatchers.IO) {
+    suspend fun get(
+        path: String,
+        token: String? = null,
+        absoluteUrl: String? = null,
+        referer: String? = null,
+    ): Raw = withContext(Dispatchers.IO) {
         val builder = Request.Builder()
-            .url(BASE + path)
+            .url(absoluteUrl ?: (BASE + path))
             .header("User-Agent", UA)
             .header("Accept", "application/json, text/plain, */*")
             .header("synAccessSource", "h5")
-            .header("Referer", "$BASE/plat/login")
+            .header("Referer", referer ?: "$BASE/plat/login")
         if (token != null) builder.header("synjones-auth", "bearer " + token)
         try {
             http.newCall(builder.build()).execute().use { resp ->
-                Raw(resp.code, YktModels.stripBom(resp.body?.string().orEmpty()))
+                Raw(
+                    resp.code,
+                    YktModels.stripBom(resp.body?.string().orEmpty()),
+                    location = resp.header("Location"),
+                )
             }
         } catch (e: java.io.IOException) {
             throw YktException.Network(e)
@@ -66,6 +86,24 @@ class YktClient private constructor(private val http: OkHttpClient) {
      */
     suspend fun postForm(path: String, form: Map<String, String>): Raw =
         withContext(Dispatchers.IO) {
+            postFormInternal(path, form, basicAuth = true, referer = "$BASE/plat/login")
+        }
+
+    /**
+     * POST 表单（无 Basic 凭据）。充值下单/删单（`/charge/order/` 系列）用：
+     * 前端是 HTML form 同步提交，不带 OAuth Basic 头，鉴权靠表单里的 `synjones-auth` 字段。
+     */
+    suspend fun postFormPlain(path: String, form: Map<String, String>, referer: String): Raw =
+        withContext(Dispatchers.IO) {
+            postFormInternal(path, form, basicAuth = false, referer = referer)
+        }
+
+    /**
+     * POST 表单 + `synjones-auth` **header**（`/blade-pay/pay` 用：收银台 axios 把登录态
+     * 放 header，放表单字段服务端不认，报「未获取到用户信息」，2026-09-21 实测）。
+     */
+    suspend fun postFormAuth(path: String, form: Map<String, String>, referer: String, token: String): Raw =
+        withContext(Dispatchers.IO) {
             val body = form.entries.joinToString("&") { (k, v) ->
                 java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
             }
@@ -74,16 +112,51 @@ class YktClient private constructor(private val http: OkHttpClient) {
                 .header("User-Agent", UA)
                 .header("Accept", "application/json, text/plain, */*")
                 .header("synAccessSource", "h5")
-                .header("Referer", "$BASE/plat/login")
-                .header("Authorization", BASIC)
+                .header("Referer", referer)
+                .header("synjones-auth", "bearer " + token)
                 .post(body.toRequestBody("application/x-www-form-urlencoded".toMediaType()))
                 .build()
             try {
                 http.newCall(req).execute().use { resp ->
-                    Raw(resp.code, YktModels.stripBom(resp.body?.string().orEmpty()))
+                    Raw(
+                        resp.code,
+                        YktModels.stripBom(resp.body?.string().orEmpty()),
+                        location = resp.header("Location"),
+                    )
                 }
             } catch (e: java.io.IOException) {
                 throw YktException.Network(e)
             }
         }
+
+    private suspend fun postFormInternal(
+        path: String,
+        form: Map<String, String>,
+        basicAuth: Boolean,
+        referer: String,
+    ): Raw = withContext(Dispatchers.IO) {
+        val body = form.entries.joinToString("&") { (k, v) ->
+            java.net.URLEncoder.encode(k, "UTF-8") + "=" + java.net.URLEncoder.encode(v, "UTF-8")
+        }
+        val builder = Request.Builder()
+            .url(BASE + path)
+            .header("User-Agent", UA)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("synAccessSource", "h5")
+            .header("Referer", referer)
+            .post(body.toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+        if (basicAuth) builder.header("Authorization", BASIC)
+        val req = builder.build()
+        try {
+            http.newCall(req).execute().use { resp ->
+                Raw(
+                    resp.code,
+                    YktModels.stripBom(resp.body?.string().orEmpty()),
+                    location = resp.header("Location"),
+                )
+            }
+        } catch (e: java.io.IOException) {
+            throw YktException.Network(e)
+        }
+    }
 }
