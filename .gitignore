@@ -36,6 +36,7 @@ captures/
 # ============ 工具工作区（本地记忆/会话，非项目产物）============
 .workbuddy/
 .zcode/
+.zcodeignore
 .claude/settings.local.json
 
 # ============ 临时产物 ============
