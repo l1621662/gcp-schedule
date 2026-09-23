@@ -18,7 +18,7 @@ package edu.gcp.schedule.data.jw
  *
  * 1、2 有一个共同诱因：**学校对直连出口与代理出口区别对待**。移动端开着第三方
  * VPN/代理时，统一认证超时、SSO 落点 500；关闭后立即恢复。脚本侧同一现象
- * （`DESIGN.md` §7.6、`scripts/README.md` §4）曾被误判成"教务挂了"。
+ * （`DESIGN.md` §7.6 有记录）曾被误判成"教务挂了"。
  * 故各诊断工厂都接受 `vpnActive`，命中时在正文里点名让用户先关代理。
  *
  * 本对象**不依赖 android.* / WebView**，是纯逻辑，可 JVM 单测
@@ -171,7 +171,7 @@ object JwImportDiagnosis {
      * （`#loginDiv` + `input[type=password]` + `<title>登录</title>`）。
      *
      * 为什么用「与」而不是「或」：本判定会拦截后续流程，误报会把正常页当会话失效。
-     * 已登录的课表/主页快照中这两者均为 0 处（`scripts/out/xskb_vt0.html`、`syxkb.html`），
+     * 实测已登录的课表/主页页面里这两者均为 0 处，
      * 单看任一特征的误报面更大，双特征齐备才算。
      *
      * ⚠️ 判据必须与探针输出的 token **逐字对齐**。本轮踩过一次：探针输出单词 `password`，

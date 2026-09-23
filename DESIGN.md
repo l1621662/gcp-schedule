@@ -679,7 +679,7 @@ interface CourseImporter {
 SSO 落点 500；关闭即恢复。`JwVpnDetector` 在失败路径探测 `TRANSPORT_VPN` 并点名提示
 （需 `ACCESS_NETWORK_STATE`）。同时注意**取证环境本身会污染结论**：本机开着代理时
 用 curl 测得的结果与手机直连不一致，此类对照实验必须在干净出口（如手机）复做。
-脚本侧同一现象见 §7.6 与 `scripts/README.md` §4。
+（同一现象脚本侧也踩过，见 §7 风险清单；相关脚本已删除。）
 
 实现：`data/jw/JwImportDiagnosis.kt`（纯逻辑，不依赖 android.* → JVM 可测）、
 `data/jw/JwVpnDetector.kt`、`data/jw/JsStringDecode.kt`；
@@ -950,7 +950,7 @@ HugeIcons 的 `isTransitive = false` 仍保留（防 `androidx.core` 被抬到 1
 **来源与接口（2026-09-19 实测）**：菜单 `NEW_XSD_KSBM_WDKS_KSAPCX`（考试报名 → 我的考试 → 考试安排查询）。
 壳页 `/jsxsd/xsks/xsksap_query`（学期下拉 `select#xnxqid`），数据接口 `/jsxsd/xsks/xsksap_list`
 （**不带 `.do`**；带 `.do` 返回 no-open 页）。GET 参数 `xnxqid` + `xqlb`（空 = 全部）+ 分页
-`pageNum/pageSize`；响应 `{code, count, data:[…]}`。字段与坑详见 `scripts/README.md` §5.4。
+`pageNum/pageSize`；响应 `{code, count, data:[…]}`。字段与坑见 `data/jw/ExamScheduleParser` 的 KDoc。
 考试由教务**考前数周才录入**，平时 `count=0` 属正常空态，不是错误。
 
 **建模决策：考试是 `CourseKind.Exam`，不是独立实体。** 复用 `Course` 既有字段表达考试，零 schema 迁移：
@@ -1203,7 +1203,7 @@ POST /jwglxt/kbcx/xskbcx_cxKbxx.html  → 课表 JSON（kbList[]）
 - 凭证存 EncryptedSharedPreferences 新文件 `jw_credentials.xml`（EncryptedSharedPreferences）；
   `backup_rules.xml` / `data_extraction_rules.xml` 增加排除（本 App `allowBackup=true`，
   不排除会随云备份走）。
-- `scripts/README.md` §7 口径同步更新为：「App 不出现硬编码密码；用户显式开启
+- 口径：「App 不出现硬编码密码；用户显式开启
   自动检测后，密码加密存本机，仅用于本机向教务登录」。
 - 检测频率 ≤ 一天一次量级、仅读取本人数据，不属于刷接口；README 免责声明已有。
 
@@ -1218,7 +1218,7 @@ POST /jwglxt/kbcx/xskbcx_cxKbxx.html  → 课表 JSON（kbList[]）
 #### 阶段拆解
 
 D1 领域纯函数 + 测试 → D2 数据层（`ZfJwSession` 无界面登录 + 会话复用 / 基线 / 凭证）→
-D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 真机验证 + scripts/README 口径收口。
+D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 真机验证 + 文档口径收口。
 
 ### 4.18 共享单车扫码（2026-09-20，P6；UI 规格见 §3.9）
 
@@ -1268,8 +1268,8 @@ D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 �
    `requests` 会默认读取该变量，请求经代理出口发出，教务 SSO 落点 `/jsxsd/xk/LoginToXk`
    将返回 404 通用错误页，表现为「CAS 认证成功但 `xsMainV` 退回 860 字节的未登录页」。
    同一 URL 时而 200 时而 404，正是代理出口与直连出口被服务端区别对待所致——**不是教务不稳定**。
-   **修复**：`scripts/fetch_courses.py` 内两个 Session 均设 `trust_env = False` 强制直连，已实测验证
-   （代理变量存在时仍可跑通）。
+   **当时的修复**：脚本内两个 Session 均设 `trust_env = False` 强制直连（脚本已于 2026-09-23 删除；
+   这一现象在 App 侧同样存在，处理见 §4.4.1 的 `JwVpnDetector` 提示）。
 
    > **2026-09-18 更正**：原文写「App 端 WebView 由用户手动登录，不经过该落点，不受影响」，
    > 该结论**已被真机推翻**。移动端开着第三方 VPN/代理时同样中招——表现为统一认证

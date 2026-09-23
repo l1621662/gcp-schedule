@@ -17,7 +17,7 @@
 2. `PROMPTS.md` 只读你要做的那一个阶段块
 3. `DESIGN.md` **只读与任务相关的章节**（§3 导航/UI 规格、§4.1–4.8 结构规格、§3.5 作息表）；
    历史实现记录在 `docs/devlog.md`（仅本地），只在排查"当初为什么这么改"时才翻
-4. 只读参考：`F:\light-life-v3.0`（胖乖）、`scripts/`（教务爬虫，说明见 `scripts/README.md`）
+4. 只读参考：`F:\light-life-v3.0`（原项目的胖乖实现，可选）；教务相关实现全部在 App 内（见 DESIGN §4.4/§4.17）
 
 改导航或课表领域模型前，必须先改 `DESIGN.md` 对应章节（不是 devlog）。
 
@@ -124,38 +124,19 @@ adb shell am start -n edu.gcp.schedule.debug/edu.gcp.schedule.MainActivity
 无线调试（手机重启或 `adb usb` 后失效，IP 要现取勿记死）：
 `adb -s <serial> tcpip 5555` → `adb shell ip route` 取 IP（接口是 **wlan2**，不是 wlan0）→ `adb connect <ip>:5555`。
 
-## 教务爬虫（scripts/）
+## 教务实现（全部在 App 内）
 
-正式脚本 5 个；历史一次性探测脚本在 `scripts/_archive/`（**勿依赖**，仅留档；该目录不入公开仓库）。
+原项目的 Python 爬虫（`scripts/`，针对江西水利电力大学 · 强智教务）**已于 2026-09-23 整体删除** ——
+它对本项目（正方教务）完全跑不通，且当时的「电脑抓取 → 导出 JSON → 手机导入」通道已被 App 内的
+WebView 导入取代。真要重写一份 PC 端脚本，可从 git 历史（提交 `0059245` 之前）取回作参考，
+但注意正方登录需要**人工输入验证码**，脚本化的边际价值不高。
 
-| 文件 | 作用 | 产出 |
+当前两条实现链路（改之前先读）：
+
+| 链路 | 位置 | 规格 |
 |------|------|------|
-| `jw_session.py` | 共享登录（CAS → 教务 SSO → 会话校验） | — |
-| `fetch_courses.py` | 学期理论课表（`--term` 可选） | `scripts/out/courses.json` |
-| `fetch_lab_courses.py` | 实验课表（实践实验 → 实验课表查询，`--term` 可选） | `scripts/out/lab_courses.json` |
-| `fetch_exams.py` | 考试安排（`--term` 可选，缺省取教务当前学期；JSON 接口） | `scripts/out/exams.json` |
-| `fetch_scores.py` | 课程成绩（`--term` 可选，缺省全部学期；JSON 接口） | `scripts/out/scores.json` |
-
-所有脚本输出 JSON 顶层 `term` = **实际爬到的学期**（如 `2026-2027-1`），App 导入确认弹窗据此展示；
-带 `--term` 时脚本会校验「请求学期 = 教务返回学期」，不一致直接报错而不是静默爬错学期。
-
-```powershell
-.\.venv-scraper\Scripts\python.exe scripts\fetch_courses.py     # 可加 --term 2025-2026-2
-.\.venv-scraper\Scripts\python.exe scripts\fetch_lab_courses.py
-.\.venv-scraper\Scripts\python.exe scripts\fetch_exams.py
-.\.venv-scraper\Scripts\python.exe scripts\fetch_scores.py
-```
-
-- **Session 必须 `trust_env = False`**：本机 shell 注入了 `HTTP_PROXY/HTTPS_PROXY`（IDE 本地代理），
-  requests 默认走代理会让教务 SSO 落点返回 404、主页退回「用户没有登录」，现象像"教务挂了"。
-  统一用 `jw_session.new_session()`，不要自己 `requests.Session()`。
-- 凭证在 `scripts/credentials.local.json`（已 gitignore），禁止提交、禁止写进 App。
-- 两个课表页结构**完全不同**：理论课表按课程所在 `<td>` 列序推星期；实验课表是「周次 × 节次」两级纵轴，
-  周次挂在**行分组**上、且同门课按周拆成多块需聚合。解析逻辑**不可互相复用**。
-- 考试安排/成绩走**不带 .do 的 layui JSON 接口**（`xsks/xsksap_list`、`kscj/cjcx_list`，参数
-  `xnxqid`/`kksj` + 分页 `pageNum/pageSize`）；带 .do 的同名地址返回「系统功能暂未开放」no-open 页，
-  不要把「功能被校方关闭」误判成「暂无数据」。学期参数：课表页 `xnxq01id`，考试 `xnxqid`，成绩 `kksj`。
-- 登录链路、DOM 规则、排错表、WebView 注入 JS：**`scripts/README.md`**（比 DESIGN 更细）。
+| 课表/成绩导入（WebView + 注入 JS） | `data/jw/ZhengfangScheduleParser`、`ZhengfangScoreParser`、`ui/jwvw/JwImportScreen` | DESIGN §4.4 / §4.15 |
+| 调课检测（无界面 HTTP） | `data/jw/ZfJwSession`（登录 + `kbList`）、`JwDetectRunner` | DESIGN §4.17 |
 
 ## 架构（改代码前对齐）
 
@@ -174,14 +155,14 @@ Graph.kt         单例 Repository
 JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件冷启动刷新
 ```
 
-- 课表 JSON 字段对齐 DESIGN 4.3 / 拾光互通；解析层见 `scripts/fetch_courses.py` 与 `data/jw/`
+- 课表 JSON 字段对齐 DESIGN 4.3 / 拾光互通；解析层全在 `data/jw/`
 - 教务：**正方** `https://jwcjw.gcp.edu.cn`；登录 `/jwglxt/xtgl/login_slogin.html`（需验证码，图片接口 `/jwglxt/kaptcha?time=…`）→ 课表 `/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html`，数据接口 `/jwglxt/kbcx/xskbcx_cxKbxx.html`（DESIGN §4.4/§4.17）
 - 解析 HTML 用注入 JS 抽 `li.courselists-item`；Kotlin 侧 `html.parser` 思路，**lxml 会丢节点**（双 doctype）
 
 ## 硬性禁止
 
 - 禁止刷积分、绕过付费、伪造官方身份
-- 禁止把学号/密码/token 写进 git（`scripts/credentials.local.json`、`local.properties`、`release.jks`、`keystore.properties` 已 ignore）
+- 禁止把学号/密码/token 写进 git（`local.properties`、`release.jks`、`keystore.properties` 已 ignore）
 - **本仓库为公开仓库**：写文档/注释/示例时不得出现真实学号、姓名、手机号、token；新增抓取产物目录前先确认 `.gitignore` 已覆盖
 - 禁止未改 `DESIGN.md` 就改导航或课表领域模型
 - 禁止 emoji 当功能图标；HugeIcons 查名用本地 JAR，勿猜
@@ -211,8 +192,6 @@ P6 打磨 — **进行中**
 ## 仓库与发版
 
 - 原项目：https://github.com/Inonvation/JUWP-Schedule （MIT）；本仓库是基于它的「广州城市职业学院 · 正方教务」改版
-- ⚠️ `scripts/` 仍是**原项目（江西水利电力大学 · 强智）**的爬虫，尚未适配正方，目前只作换校适配参考
-- **不入库**（已 gitignore，本地保留）：`scripts/out/`（含真实学号/姓名/会话）、
-  `scripts/_archive/`、`docs/`、`scripts/gen_week_layout_preview.py`、`release.jks`、`keystore.properties`
+- **不入库**（已 gitignore，本地保留）：`docs/`、`release.jks`、`keystore.properties`
 - 发版流程见 `.agents/skills/publish-release/SKILL.md`；图标查名见 `.agents/skills/find-hugeicons/SKILL.md`
 - 对外发版必须用正式 keystore 签名；`release.jks` 缺失时构建回退 debug 签名（**仅本地调试**，不可对外分发）

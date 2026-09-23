@@ -1239,7 +1239,7 @@ private val PAGE_CONTENT_PROBE_JS: String = """
  * 特征取自实测（2026-09-18，手机 5G 无代理）：
  * - 未登录的 `xsMainV` / `xskb_list` / `Logon.do` 都是 HTTP 200 就地渲染登录页，
  *   含 `id="loginDiv"` 与 `type="password"` 输入框，`<title>登录</title>`；
- * - 已登录的课表/主页快照里这两者均为 0 处（`scripts/out/xskb_vt0.html`、`syxkb.html`）。
+ * - 实测已登录的课表/主页页面里这两者均为 0 处。
  *
  * ⚠️ 不要改回按文案判定。曾用过「用户没有登录」，而实测该页面上此文案出现 **0 次**，
  * 那种判据永远不会命中（旧实现的「会话失效」提示因此从未生效过）。

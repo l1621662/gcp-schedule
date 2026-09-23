@@ -30,7 +30,7 @@ object ExamMapper {
         return h * 60 + min
     }
 
-    /** 与 `scripts/out/exams.json` 及注入 JS fetch 输出对齐的考试条目。 */
+    /** 与考试查询接口返回（注入 JS fetch 的 JSON）对齐的考试条目。 */
     data class ExamEntry(
         val courseNo: String = "",
         val name: String,

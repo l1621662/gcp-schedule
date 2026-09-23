@@ -2,7 +2,11 @@
 
 本文档面向想把这套方案搬到**自己学校**的开发者：讲清楚本项目的整体架构、
 「从教务系统拿到课表/考试/成绩」两条完整数据链路的实现细节，以及换校适配的动手步骤。
-应用功能与界面规格见 [DESIGN.md](DESIGN.md)，爬虫脚本速查见 [scripts/README.md](scripts/README.md)。
+应用功能与界面规格见 [DESIGN.md](DESIGN.md)。
+
+> ⚠️ **部分内容已过时**：本文写作时针对的是原项目（江西水利电力大学 · 强智教务），
+> 其中的 Python 爬虫（`scripts/`）与 CAS / `jiaowu.juwp.edu.cn` 相关段落**已随 2026-09-23 的迁移删除**，
+> 仅作「换校适配思路」的历史参考。本项目当前实现（正方教务）以 `AGENTS.md` 与 `DESIGN.md` 为准。
 
 > 本项目是**广州城市职业学院（正方教务）的非官方学生项目**，仅供学习交流。
 > 换校适配时请同样遵守：模拟正常客户端操作、凭证不入代码仓库、不刷积分、不伪造官方身份。
@@ -14,7 +18,7 @@
 1. [全景：两条数据链路](#1-全景两条数据链路)
 2. [工程形态与架构分层](#2-工程形态与架构分层)
 3. [领域模型与数据存储](#3-领域模型与数据存储)
-4. [链路 A：Python 爬虫（逆向参考实现）](#4-链路-apython-爬虫逆向参考实现)
+4. [链路 A：Python 爬虫（**已删除**，仅存历史参考）](#4-链路-apython-爬虫逆向参考实现)
 5. [链路 B：App 端 WebView 导入（生产路径）](#5-链路-bapp-端-webview-导入生产路径)
 6. [核心算法与口径（改代码前必读）](#6-核心算法与口径改代码前必读)
 7. [考试安排映射](#7-考试安排映射)
@@ -31,28 +35,22 @@
 围绕它有两条互补的链路：
 
 ```
-链路 A（Python 爬虫，本机调试用 —— 逆向参考实现）
-  scripts/jw_session.py        CAS 统一认证 → 教务 SSO，拿到可用会话
-  scripts/fetch_courses.py     理论课表 HTML → courses.json
-  scripts/fetch_lab_courses.py 实验课表 HTML → lab_courses.json（含周次聚合）
-  scripts/fetch_exams.py       考试 JSON 接口 → exams.json
-  scripts/fetch_scores.py      成绩 JSON 接口 → scores.json
-
-链路 B（App 端 WebView 注入导入 —— 生产路径，用户数据不出本机）
-  JwImportActivity → WebView 里用户自己登录教务
+链路 B（App 端导入 —— 生产路径，用户数据不出本机）
+  JwImportActivity → WebView 里用户自己登录正方教务（登录需人工输入验证码）
     → 按当前 URL 判定页面类型 → 注入 JS 抽 DOM / 同源 fetch JSON
-    → Kotlin 解析成 Course → 确认弹窗（选目标课表/合并或覆盖）→ Room 入库
+    → Kotlin 解析成 Course / ScoreRecord → 确认弹窗（选目标课表/合并或覆盖）→ Room 入库
+
+链路 C（调课检测 —— 无界面 HTTP，仅本机）
+  ZfJwSession：登录页拿 csrftoken + /jwglxt/kaptcha 取验证码图 → 提交 → kbList JSON
+    手动验证一次后会话 cookie 加密留存，后台定时检测复用它（过期则提示再验证）
 ```
 
-为什么两条链路并存：
+> **链路 A（Python 爬虫）已于 2026-09-23 删除**：它跑在开发机上（原项目用来逆向页面结构、
+> 产出 fixture 快照、以及「电脑抓取 → 导 JSON → 手机导入」）。正方登录需要人工验证码，
+> 脚本化的价值不高，App 内的导入已覆盖这条需求。下表仍保留其位置说明，仅作历史参考。
 
-- **Python 爬虫跑在开发机上**，用来把页面结构逆向清楚、产出可当解析器回归
-  fixture 的 JSON 与 HTML 快照。改 App 解析器之前先跑它确认页面规则没变。
-- **App 端不跑 Python、也不内置任何账号密码**：用户在 WebView 里自己登录，
-  Cookie 留在系统 `CookieManager`，代码里只有 URL 与解析规则。这是隐私与合规的底线。
-
-两条链路共用同一套**页面规则**（DOM 结构、接口参数、字段语义），因此排错文档
-`scripts/README.md` 同时覆盖 App 行为——脚本里趟过的坑，App 端实现已经一并规避。
+**App 端不内置任何账号密码**：用户在 WebView / 设置页自己登录，凭证只留在本机
+（导入走系统 `CookieManager`；调课检测走 Android Keystore 加密存储），这是隐私与合规的底线。
 
 ---
 
@@ -164,9 +162,12 @@ data class SemesterConfig(
 
 ---
 
-## 4. 链路 A：Python 爬虫（逆向参考实现）
+## 4. 链路 A：Python 爬虫（**已删除**）
 
-代码在 `scripts/`（说明：[scripts/README.md](scripts/README.md)）。
+> 本节描述的实现（`scripts/jw_session.py`、`fetch_courses.py`、`fetch_lab_courses.py`、
+> `fetch_exams.py`、`fetch_scores.py`）已于 2026-09-23 整体删除，原因见 §1 的说明。
+> 下面的内容仅作「如何逆向一个教务系统」的思路参考，命令与路径都已不可用；
+> 需要取回代码可从 git 历史（提交 `0059245` 之前）恢复。
 这一节讲**可迁移的方法论**：即使你的学校不是强智教务，排查套路也是同一套。
 
 ### 4.1 登录链路（`jw_session.py`）
@@ -273,7 +274,7 @@ day = td 下标 - (本行 td 总数 - 8)      # 8 = 节次标签 + 7 天
    成绩是双字段：`zcj`（数值）+ `zcjstr`（字符串，等级制「优」时数值为空），
    **展示一律以 `zcjstr` 为口径**；`kz=1` 表示「请评教」，成绩被锁定不显示分数。
 
-关键字段对照（强智原名 → 语义）见 [scripts/README.md §5.4](scripts/README.md#54-考试安排与课程成绩2026-09-19-实测)。
+关键字段对照（强智原名 → 语义）见 `data/jw/ExamScheduleParser` 的 KDoc（考试导入尚未迁到正方）。
 
 ---
 
@@ -429,7 +430,7 @@ UI、存储、小组件等全部可以原样复用。建议顺序：
 
 ### 第 2 步：存快照、跑通 Python 链路
 
-1. 登录后把目标页面「另存为」完整 HTML，放进 `scripts/out/`（已 gitignore）当 fixture；
+1. 登录后把目标页面「另存为」完整 HTML，放在本机任意临时目录（勿提交含个人信息的快照）；
 2. 仿照 `jw_session.py` 写你学校的登录链路（CAS 通常大同小异，注意 `service` 参数）；
 3. 仿照 `fetch_courses.py` 写解析：先跑通「能拿到课程名列表」，再补星期/周次/节次。
    排错时对照快照与 `*_raw.json` 中间产物，而不是凭想象猜 DOM。
@@ -471,9 +472,9 @@ UI、存储、小组件等全部可以原样复用。建议顺序：
 
 覆盖面（约 30 个测试类，`app/src/test/`）：
 
-- **解析器**：`QiangzhiScheduleParserTest` / `SyjxScheduleParserTest`（HTML fixture）、
-  `ExamScheduleParserTest` / `ScoreParserTest`（注入 fetch JSON 样例）、
-  `ImportJsonShapeTest`（互通 JSON 形状）、`QiekjSignTest`；
+- **解析器**：`ZhengfangScheduleParserTest`（正方课表 DOM）、`ZhengfangScoreParserTest`（正方成绩）、
+  `ZfJwSessionTest`（无界面登录）、`ExamScheduleParserTest`（考试 JSON，强智口径待迁）、
+  `ImportJsonShapeTest`（互通 JSON 形状）、`TermFormatTest`（学期口径）；
 - **领域算法**：`ScheduleCalculatorTest`（周次/时刻/配色）、
   `TimeSlotRulesTest` / `TimeSlotScheduleTest`（作息不变量）、
   `WeekGridLayoutTest`（网格几何）、`TodayStateTest` / `TodayBoundaryTest`、
@@ -501,10 +502,9 @@ UI、存储、小组件等全部可以原样复用。建议顺序：
 
 ## 11. 安全与合规红线
 
-- 凭证只进 gitignore 的 `scripts/credentials.local.json`；**App 端代码里永远不出现
-  学号/密码/token**，登录由用户在 WebView 里亲手完成；
-- 公开仓库的文档、注释、示例里不得出现真实学号、姓名、手机号；抓取产物
-  （`scripts/out/`，含真实数据）不入库；
+- **App 端代码里永远不出现学号/密码/token**：登录由用户在 WebView（导入）或设置页（调课检测，
+  凭证进 Android Keystore 加密存储）亲手完成；
+- 公开仓库的文档、注释、示例里不得出现真实学号、姓名、手机号；任何含真实数据的抓取产物一律不入库；
 - 模拟登录/抓取以「正常客户端」为限：不刷积分、不绕过付费、不伪造官方身份、
   不对教务接口做高频请求；
 - 对外发布你的改编版时，同样写明非官方声明，使用风险自负。
@@ -513,7 +513,6 @@ UI、存储、小组件等全部可以原样复用。建议顺序：
 
 ## 参考
 
-- [scripts/README.md](scripts/README.md) —— 爬虫速查：登录链路、DOM 规则、排错表（比本文更细）
 - [DESIGN.md](DESIGN.md) —— 产品与界面规格（§3 UI、§4 技术架构逐模块决策记录）
 - [AGENTS.md](AGENTS.md) —— 给 AI 结对工具的工程约定（版本实况、口径清单）
 - [拾光课程表](https://github.com/XingHeYuZhuan/shiguangschedule) —— JSON 互通格式参照
