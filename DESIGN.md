@@ -703,55 +703,64 @@ JSON 导入导出字段名与上述一致，便于与拾光用户互导。
 
 ### 4.4 教务导入（WebView + JS）
 
-**2026-09-17 实测结论（已用真实学生账号跑通全链路）：**
+**2026-09-23 真机验证（用户实机跑通课表导入）：正方教务系统**
 
 | 项 | 值 |
 |----|-----|
-| 统一认证 CAS | `https://eapp2.juwp.edu.cn:9443/cas/login?service=...` |
-| 门户 | `http://portal.juwp.edu.cn`（HTTP；443 不通） |
-| 教务系统 | **强智科技** `https://jiaowu.juwp.edu.cn:81/`（登录页）→ SSO 后 `http://jiaowu.juwp.edu.cn:8080/jsxsd/` |
-| 课表页 | `GET /jsxsd/xskb/xskb_list.do?viweType=0`（学期理论课表 / 个人课表信息） |
-| SSO service | 必须用 `http://jiaowu.juwp.edu.cn/sso.jsp`（**不要**带 :81/:8080，否则 500） |
-| 关键 cookie | 先访问 `:81/` 取 `bzb_njw`，再跟 CAS ticket |
-| 直登 Logon.do | 页面有交织编码，直登报「帐号不存在或密码错误」；**统一认证密码可用，教务独立密码可能不同** |
-| 爬虫脚本 | `scripts/fetch_courses.py`（凭证放 `scripts/credentials.local.json`，已 gitignore） |
-| 导出样例 | `scripts/out/courses.json`（2026-2027-1，约 29 条课次） |
+| 学校 / 系统 | 广州城市职业学院 · **正方**（`jwglxt`） |
+| 教务站 | `https://jwcjw.gcp.edu.cn`（`JwUrls.BASE_URL`） |
+| 登录页 | `GET /jwglxt/xtgl/login_slogin.html`——`JwUrls.ENTRY` 与 `JwUrls.SSO_WARMUP` 现为同一地址 |
+| 学生首页 | `GET /jwglxt/xtgl/index_init.html`（登录成功落点） |
+| 课表查询页 | `GET /jwglxt/kbcx/xskbcx_cxXskbcxIndex.html`（正方首页 → 信息查询 → 学生课表查询） |
+| 考试查询页 | `GET /jwglxt/kwgl/kscx_cxXsksxxIndex.html?gnmkdm=N358105` |
+| 成绩查询页 | `GET /jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005` |
+| 成绩数据接口 | `POST /jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005`；分页 `queryModel.showCount` / `queryModel.currentPage`，响应 `{totalResult, items:[…]}` |
+| 证书白名单 | `jwcjw.gcp.edu.cn`（`JwUrls.TRUSTED_SSL_HOSTS`） |
+
+> 强智（江西水利电力大学）那套「统一认证 CAS + `sso.jsp` + `xskb_list.do`」链路已随 2026-09-23
+> 的改版从导入路径移除。`QiangzhiScheduleParser` / `SyjxScheduleParser` / `ScoreParser` 与
+> `JwHttpSession` 仍被调课检测（§4.17）引用，迁移完成前**不要删**。
 
 **导入窗口锁竖屏（2026-09-19）**：`JwImportActivity` 声明 `screenOrientation="portrait"`——
-转屏会销毁 WebView（统一认证密码输到一半全没）并取消 `rememberCoroutineScope` 里的导入协程。
+转屏会销毁 WebView（登录密码输到一半全没）并取消 `rememberCoroutineScope` 里的导入协程。
 全 App **唯一**锁方向的窗口，理由如上；其余页面保持不锁。
 
-课表 DOM 规律（强智 newL）：
+课表 DOM 规律（正方 `xskbcx`，2026-09-23 真机确认）：
 
-- `li.courselists-item` + `div.qz-hasCourse-title` 课程名  
-- 父级 `qz-hasCourse-N` → 星期 N  
-- `span.qz-hasCourse-abbrinfo`：`老师:X;时间:1-10周[1-2节];地点:...`  
-- 解析 HTML 用 `html.parser`（页面双 doctype，lxml 会丢节点）
+- 单元格 `td.td_wrap[id="<星期>-<节次>"]`（`id="1-1"` = 周一第 1 节）——**星期与节次直接来自 id**，
+  不再需要强智那套「按列序推星期 / rowspan 占位」的算法
+- 同一格多门课（不同周次轮换）时，每门课一个 `div.timetable_con`
+- 课程名取 `.title`；调课格是 `u.title.showJxbtkjl`，文本前缀 `【调】` 要剥掉
+- 每个 `p` 内 `span[data-toggle=tooltip]` 的 `title` 标明字段（含「节/周」「上课地点」「教师」），
+  值取该 `p` 里最后一个 `font` 的文本
+- 周次文本形如 `(1-2节)9-15周(单),16-17周`：节次范围取圆括号里的 `(x-y节)`——rowspan 合并格
+  id 上的节次只是首行，真实范围以文本为准
+- 单/双周标记**只作用于自己那一段**：`9-15周(单),16-17周` = {9,11,13,15,16,17}，不能整串套用
 
 流程：
 
-1. App 内 WebView 打开教务/门户 CAS，用户登录  
-2. 门户应用中心「教务管理系统」→ `https://jiaowu.juwp.edu.cn:81/sso.jsp`  
-3. 或脚本：CAS TGC + bzb_njw → sso.jsp ticket → 8080 xsd  
-4. 打开 `xskb_list.do?viweType=0`，解析 DOM → `List<Course>`  
-5. 预览确认 → 写库  
+1. App 内 WebView 打开正方登录页，用户自己登录（凭证不落 App）
+2. 登录成功落在教务首页；**App 不自动跳课表页**——2026-09-23 真机反馈：自动顶到课表查询页时页面打不开
+3. 用户在教务里自己点进课表查询页（正方把实验课与理论课排在同一张表里，不单独导入）
+4. 点底部「导入理论课表」→ 注入 JS 提取 → 预览确认 → 写库
+5. 成绩模式另有显式「成绩查询页」入口，进页后点「导入成绩」
 
-抽象：
+抽象（实现见 `data/jw/CourseImporter.kt`）：
 
 ```kotlin
 interface CourseImporter {
-  val id: String
-  val displayName: String
-  suspend fun import(session: WebSession): ImportResult
+    val id: String
+    val displayName: String
 }
 ```
 
-M1：**ManualImporter** + **QiangzhiJsxdImporter**（按上表路径）。
+当前实现：`ZhengfangImporter`（`id = "gcp_zhengfang"`）。
 
 **仍需注意：**
 
-- Android WebView 用用户自己的 CAS 登录，不要在代码里写死密码  
-- Python 爬虫仅本机调试；凭证不进 git  
+- Android WebView 用用户自己的账号登录，不要在代码里写死密码
+- 正方登录页与业务页同域，未登录时跳到独立的 `login_slogin` 页（URL 可判定），不复用强智的
+  `loginDiv` + 密码框探针（见 §4.4.1）
 - 开学日/总周数/作息表：可从课表周次反推或设置手填
 
 #### 4.4.1 导入失败的错误呈现（2026-09-18 实测定位，含两轮修正）
@@ -761,9 +770,9 @@ M1：**ManualImporter** + **QiangzhiJsxdImporter**（按上表路径）。
 
 | 现象 | 真实原因 | 旧实现的表现 | 现方案 |
 |------|----------|--------------|--------|
-| 「500 error System Error.Please Wait…」 | `sso.jsp?ticket=` 票据校验失败（HTTP 500）。**票据一次性，重放必 500**；该 500 是自愈型：响应同时写下 `bzb_njw`，重走一遍即通过 | 没有重写 `onReceivedHttpError`，HTTP 层错误完全看不见 → 状态条显示「已登录教务…」（与事实相反） | `onReceivedHttpError`（仅主 frame，`>= 400`）→ 错误浮层；认证链上的 5xx 先**自动重试一次**（`shouldAutoRetry`） |
+| 「500 error System Error.Please Wait…」（**强智历史**） | `sso.jsp?ticket=` 票据校验失败（HTTP 500）。**票据一次性，重放必 500**；该 500 是自愈型：响应同时写下 `bzb_njw`，重走一遍即通过 | 没有重写 `onReceivedHttpError`，HTTP 层错误完全看不见 → 状态条显示「已登录教务…」（与事实相反） | `onReceivedHttpError`（仅主 frame，`>= 400`）→ 错误浮层；**认证链**上的 5xx 自动重试一次（`shouldAutoRetry` 只认 `ticket=` / `sso.jsp` / `cas/login`）。正方没有这条自愈链，正方页面 5xx 一律交给用户显式重试 |
 | 「网页无法打开 / ERR_CONNECTION_TIMED_OUT」 | 传输层失败 | `onReceivedError` 置了错误态，但失败页随后仍回调 `onPageFinished` 无条件置 `Ready` 把浮层盖掉 | `lastFailedUrl` 记失败 URL，`onPageFinished` **按 URL 相等一次性消费**后返回 |
-| URL 不变、页面却是登录框 | 未登录时教务**不跳转**，把登录页就地渲染在 `xsMainV`/`xskb_list` 上（HTTP 200、`#loginDiv` + 密码框） | 按 URL 判定为「已登录主页」并自动跳课表 → 与课表页的登录页**互跳成环**（实测 18 次导航、约 1 秒一轮） | 会话探针先于所有自动导航执行，`looksLikeLoginPage` 命中即报会话失效 |
+| URL 不变、页面却是登录框（**强智历史**） | 未登录时强智教务**不跳转**，把登录页就地渲染在 `xsMainV`/`xskb_list` 上（HTTP 200、`#loginDiv` + 密码框） | 按 URL 判定为「已登录主页」并自动跳课表 → 与课表页的登录页**互跳成环**（实测 18 次导航、约 1 秒一轮） | 会话探针先于「就绪」判定执行，`looksLikeLoginPage` 命中即报会话失效。**正方不适用**：未登录是独立 `login_slogin` 页，用户正常登录即可 |
 | 顶栏标题变「500错误」 | 服务端错误页的 `<title>` 被 `onReceivedTitle` 如实反映 | — | 保留（作为辅助线索） |
 
 **回调顺序是本块的关键坑**（实测）：`onReceivedHttpError` → `onPageStarted` → `onPageFinished`，
@@ -776,12 +785,17 @@ M1：**ManualImporter** + **QiangzhiJsxdImporter**（按上表路径）。
 （先落教务域写 `bzb_njw`，再由页面 JS 跳同一个 CAS），只有已登录后的页面
 （如课表页自身 5xx）才就地重放。
 
+> **正方口径（2026-09-23）**：正方没有一次性 ticket 链，`retryUrl()` 对正方页面一律返回
+> `null`（就地 reload）；只有含 `ticket=` / `sso.jsp` / `cas/login` 的 URL 才回 `JwUrls.SSO_WARMUP`。
+> 顶栏刷新与错误浮层「重试」共用这条裁决。
+
 **会话判定的特征必须与探针输出逐字对齐**：探针输出 token（`loginDiv` / `password`），
 判据用「与」（两者齐备才算）。踩过的两个坑：① 曾用文案「用户没有登录」判定，
 而该文案在真实页面上出现 **0 次**，判据从未生效；② 探针输出 `password` 而匹配器
 找 `type="password"`，两边不一致 → 判定恒 false，且**不报错**（静默失效）。
-另外判定只限教务域（`JwUrls.isJwHost`，host 精确比较）——CAS 登录页本来就有密码框，
-在那儿判定会把「正在登录」误报成「会话失效」。
+另外判定只限教务域（`JwUrls.isJwHost`，host 精确比较）——强智链路里统一认证的登录页本来就
+有密码框，在那儿判定会把「正在登录」误报成「会话失效」。正方登录页与业务页同域，但不含
+`loginDiv`，同样不会被这条判据误报；正方未登录另由 `isLoginLikeUrl`（URL 判定）在状态条提示。
 
 **出口问题**（两条链路的共同诱因）：移动端开着第三方 VPN/代理时统一认证超时、
 SSO 落点 500；关闭即恢复。`JwVpnDetector` 在失败路径探测 `TRANSPORT_VPN` 并点名提示
@@ -846,6 +860,10 @@ Channel：`android_app`
 常用场景关键词建议：`calendar`, `book`, `water`, `cup`, `wallet`, `setting`, `import`, `refresh`, `moon`, `sun`, `login`, `list`。
 
 ### 4.8 实验课表导入（syjx / toXskb）
+
+> **已停用（2026-09-23）**：正方把实验课与理论课排在同一张课表里，导入入口已移除
+> （`JwUrls.LAB_SCHEDULE` 置空、底部不再有「实验课表」按钮）。本节强智 `toXskb` 口径与
+> `SyjxScheduleParser` 暂时保留——调课检测（§4.17）仍在引用，迁移到正方后一并处理。
 
 **已确认（2026-09-17 实测，取自登录后主页快照 `scripts/out/jw_xs_main.html`）**
 
@@ -1318,6 +1336,10 @@ HugeIcons 的 `isTransitive = false` 仍保留（防 `androidx.core` 被抬到 1
 
 ### 4.14 考试安排导入（2026-09-19，与实验课同构的 kind 扩展）
 
+> **待迁移（2026-09-23）**：下面的接口是强智口径（`/jsxsd/xsks/…`）。正方考试数据是
+> `POST /jwglxt/kwgl/kscx_cxXsksxxIndex.html?gnmkdm=N358105&doType=query`，字段未抓包确认，
+> 因此正方页面上的「考试安排」按钮目前**还不能用**；建模与周次口径不变，只等换解析层。
+
 **来源与接口（2026-09-19 实测）**：菜单 `NEW_XSD_KSBM_WDKS_KSAPCX`（考试报名 → 我的考试 → 考试安排查询）。
 壳页 `/jsxsd/xsks/xsksap_query`（学期下拉 `select#xnxqid`），数据接口 `/jsxsd/xsks/xsksap_list`
 （**不带 `.do`**；带 `.do` 返回 no-open 页）。GET 参数 `xnxqid` + `xqlb`（空 = 全部）+ 分页
@@ -1362,6 +1384,12 @@ HugeIcons 的 `isTransitive = false` 仍保留（防 `androidx.core` 被抬到 1
 颜色仍按课程名分配，不挪用类型语义。
 
 ### 4.15 成绩按学期存储（2026-09-19，我的 → 成绩查询）
+
+> **已切到正方（2026-09-23）**：数据接口现为
+> `POST /jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005`（`queryModel.showCount/currentPage`
+> 分页，响应 `{totalResult, items:[…]}`），解析见 `ZhengfangScoreParser`；下面强智 `cjcx_list` 的描述
+> 属历史口径，字段映射以正方为准（`kcmc/kch/xnmmc/xqmmc/xf/zxs/cj/jd/…`）。成绩模式登录后
+> **不再自动跳**成绩页，改为显式「成绩查询页」按钮。
 
 **来源与接口（2026-09-19 实测）**：菜单 `NEW_XSD_XJCJ_WDCJ_KCCJCX`，表单页 `/jsxsd/kscj/cjcx_frm`，
 数据接口 `/jsxsd/kscj/cjcx_list`（**不带 `.do`**），GET 参数 `kksj`（学期，空 = 全部学期）+

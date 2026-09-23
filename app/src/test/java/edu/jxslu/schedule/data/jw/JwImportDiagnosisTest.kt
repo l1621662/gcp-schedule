@@ -10,32 +10,40 @@ import org.junit.Test
  * 教务导入失败诊断的契约测试。
  *
  * 三条被真机截图钉死的规则（改动前先读 [JwImportDiagnosis] 的类注释）：
- * 1. 认证链上的失败必须回 [JwUrls.SSO_WARMUP]（先写 bzb_njw 的预热入口），
- *    不能重放含 ticket 的 URL；
+ * 1. 认证链上的失败（含一次性跳转票据 `ticket=`）必须回 [JwUrls.SSO_WARMUP]，
+ *    不能重放失败的那一页；
  * 2. 已登录后的页面失败（如课表页自身 5xx）才允许就地 reload；
  * 3. VPN/代理开着时，正文必须点名「关代理」——这是 2026-09-18 实测的诱因。
+ *
+ * 断言用两套 URL：应用内的 [JwUrls] 钉真实链路，`*.example.edu` 的合成 URL 钉规则本身
+ * （票据不可重放、host 只认域名、认证链自愈）——后者换学校时不用跟着改。
  */
 class JwImportDiagnosisTest {
 
+    /** 合成的一次性票据 URL：钉「票据不可重放」这条规则。 */
     private val ticketUrl =
-        "https://eapp2.juwp.edu.cn:9443/cas/login?service=http://jiaowu.juwp.edu.cn/sso.jsp&ticket=ST-1-abc"
+        "https://sso.example.edu/cas/login?ticket=ST-1-abc&service=http://jw.example.edu/sso.jsp"
+
+    /** 合成的认证链 URL（强智式 sso.jsp）。 */
+    private val ssoUrl = "https://jw.example.edu/sso.jsp?ticket=ST-2-xyz"
 
     // ---- retryUrl ----
 
     @Test
-    fun retryUrl_casPageGoesBackToEntry() {
-        assertEquals(JwUrls.SSO_WARMUP, JwImportDiagnosis.retryUrl(JwUrls.ENTRY))
-    }
-
-    @Test
     fun retryUrl_ticketIsNeverReplayed() {
-        // CAS ticket 一次性：重放必然失败，必须回入口重新认证
+        // 一次性票据重放必然失败，必须回入口重新认证
         assertEquals(JwUrls.SSO_WARMUP, JwImportDiagnosis.retryUrl(ticketUrl))
     }
 
     @Test
     fun retryUrl_ssoJspGoesBackToEntry() {
-        assertEquals(JwUrls.SSO_WARMUP, JwImportDiagnosis.retryUrl("http://jiaowu.juwp.edu.cn/sso.jsp?ticket=ST-x"))
+        assertEquals(JwUrls.SSO_WARMUP, JwImportDiagnosis.retryUrl(ssoUrl))
+    }
+
+    @Test
+    fun retryUrl_loginEntryIsReloadedInPlace() {
+        // 正方入口就是登录页本身：就地 reload 即可，没有一次性票据要丢弃
+        assertNull(JwImportDiagnosis.retryUrl(JwUrls.ENTRY))
     }
 
     @Test
@@ -48,7 +56,7 @@ class JwImportDiagnosisTest {
     fun retryUrl_loggedInPageIsReloadedInPlace() {
         // 课表页自己 5xx 时不该把用户踢回登录页
         assertNull(JwImportDiagnosis.retryUrl(JwUrls.SCHEDULE_LIST))
-        assertNull(JwImportDiagnosis.retryUrl(JwUrls.XSD_BASE + "/jsxsd/framework/xsMainV.htmlx"))
+        assertNull(JwImportDiagnosis.retryUrl(JwUrls.STUDENT_HOME))
     }
 
     // ---- httpFailure ----
@@ -63,8 +71,8 @@ class JwImportDiagnosisTest {
     }
 
     @Test
-    fun httpFailure_500OnSsoChainGoesBackToEntry() {
-        val d = JwImportDiagnosis.httpFailure(500, JwUrls.ENTRY, vpnActive = false)
+    fun httpFailure_500OnAuthChainGoesBackToEntry() {
+        val d = JwImportDiagnosis.httpFailure(500, ssoUrl, vpnActive = false)
         assertEquals(JwUrls.SSO_WARMUP, d.retryUrl)
     }
 
@@ -84,7 +92,7 @@ class JwImportDiagnosisTest {
     // ---- networkFailure ----
 
     @Test
-    fun networkFailure_timeout_namesHostAndIsRetryable() {
+    fun networkFailure_timeout_namesHostAndKeepsPageForReload() {
         val d = JwImportDiagnosis.networkFailure(
             errorCode = JwImportDiagnosis.ERROR_TIMEOUT,
             description = "net::ERR_CONNECTION_TIMED_OUT",
@@ -92,9 +100,10 @@ class JwImportDiagnosisTest {
             vpnActive = false,
         )
         assertTrue(d.title.contains("超时"))
-        assertTrue("要指明连不上哪台机器", d.body.contains("eapp2.juwp.edu.cn:9443"))
+        assertTrue("要指明连不上哪台机器", d.body.contains(JwUrls.hostOf(JwUrls.ENTRY).orEmpty()))
         assertTrue(d.body.contains("ERR_CONNECTION_TIMED_OUT"))
-        assertEquals(JwUrls.SSO_WARMUP, d.retryUrl)
+        // 登录页/课表页超时：重试就是就地重来，没有票据要丢弃
+        assertNull(d.retryUrl)
     }
 
     @Test
@@ -102,12 +111,14 @@ class JwImportDiagnosisTest {
         val d = JwImportDiagnosis.networkFailure(
             errorCode = -999,
             description = "some engine error",
-            url = "http://jiaowu.juwp.edu.cn:8080/jsxsd/xskb/xskb_list.do?viweType=0",
+            url = "https://jw.example.edu/jsxsd/xskb/xskb_list.do?viweType=0",
             vpnActive = false,
         )
         assertTrue(d.title.isNotBlank())
         assertTrue(d.body.contains("some engine error"))
-        assertTrue(d.body.contains("jiaowu.juwp.edu.cn"))
+        // 原始失败 URL 与「当前配置的教务域」都要写进正文，用户才定位得了
+        assertTrue(d.body.contains("jw.example.edu"))
+        assertTrue(d.body.contains(JwUrls.hostOf(JwUrls.SCHEDULE_LIST).orEmpty()))
     }
 
     // ---- VPN 提示（2026-09-18 实测诱因）----
@@ -178,12 +189,14 @@ class JwImportDiagnosisTest {
     // ---- 自动重试策略（sso.jsp 500 是自愈型）----
 
     @Test
-    fun shouldAutoRetry_sso500IsSelfHealing() {
-        // 实测：sso.jsp?ticket= 的 500 响应会写下 bzb_njw，重走预热入口即通过。
+    fun shouldAutoRetry_authChain500IsSelfHealing() {
+        // 实测（强智链路）：sso.jsp?ticket= 的 500 会写下 bzb_njw，重走预热入口即通过。
         // 这正是用户此前「过一会刷新又可以」的机制，现在自动完成。
-        assertTrue(JwImportDiagnosis.shouldAutoRetry(500, "http://jiaowu.juwp.edu.cn/sso.jsp?ticket=ST-x"))
-        assertTrue(JwImportDiagnosis.shouldAutoRetry(502, JwUrls.ENTRY))
-        assertTrue(JwImportDiagnosis.shouldAutoRetry(503, "https://eapp2.juwp.edu.cn:9443/cas/login"))
+        assertTrue(JwImportDiagnosis.shouldAutoRetry(500, ssoUrl))
+        assertTrue(JwImportDiagnosis.shouldAutoRetry(503, "https://cas.example.edu/cas/login?service=x"))
+        // 正方没有自愈型认证链：登录入口与课表页的 5xx 一律交给用户显式重试
+        assertFalse(JwImportDiagnosis.shouldAutoRetry(500, JwUrls.ENTRY))
+        assertFalse(JwImportDiagnosis.shouldAutoRetry(500, JwUrls.SCHEDULE_LIST))
     }
 
     @Test
@@ -199,26 +212,31 @@ class JwImportDiagnosisTest {
 
     @Test
     fun hostOf_parsesHostNotQuery() {
-        // ENTRY 的 host 是 eapp2，service 参数里才有 jiaowu——整串匹配会误判
-        assertEquals("eapp2.juwp.edu.cn", JwUrls.hostOf(JwUrls.ENTRY))
-        assertEquals("jiaowu.juwp.edu.cn", JwUrls.hostOf(JwUrls.SCHEDULE_LIST))
-        assertEquals("jiaowu.juwp.edu.cn", JwUrls.hostOf("https://jiaowu.juwp.edu.cn:81/"))
+        // host 与 query 里各有一个域名：整串子串匹配会同时命中两个判定（曾把认证页当教务域）
+        assertEquals(
+            "a.example.edu",
+            JwUrls.hostOf("https://a.example.edu/cas/login?service=http://b.example.edu/sso.jsp"),
+        )
+        // 端口 / 路径 / query / fragment 都不能混进 host
+        assertEquals("a.example.edu", JwUrls.hostOf("https://a.example.edu:8080/jsxsd/x?y=1#z"))
         assertNull(JwUrls.hostOf(null))
         assertNull(JwUrls.hostOf("about:blank"))
+        // 应用内的登录入口与课表页必须落在同一个教务域上（换学校时这里仍要成立）
+        assertEquals(JwUrls.hostOf(JwUrls.ENTRY), JwUrls.hostOf(JwUrls.SCHEDULE_LIST))
     }
 
-    // ---- 会话失效只在教务域判定（CAS 登录页含密码框是正常流程）----
+    // ---- 会话失效只在教务域判定（别把用户正在登录的页面判成失效）----
 
     @Test
     fun checkSessionLost_scopeIsJwHostOnly() {
-        // UI 层按 JwUrls.isJwHost 收口：eapp2（CAS）与门户的登录页不能被判「会话失效」，
-        // 否则用户正在登录时会被错误地盖上「未登录/会话已失效」浮层。
+        // UI 层按 JwUrls.isJwHost 收口：只有教务域上的页面才做会话探测，
+        // 否则用户正在别的页面登录时会被错误地盖上「未登录/会话已失效」浮层。
         assertTrue(JwUrls.isJwHost(JwUrls.SCHEDULE_LIST))
-        assertFalse(JwUrls.isJwHost(JwUrls.ENTRY))
-        assertFalse(JwUrls.isJwHost("https://eapp2.juwp.edu.cn:9443/cas/login"))
-        assertFalse(JwUrls.isJwHost("http://portal.juwp.edu.cn/cas/login_portal"))
-        // host 精确比较：把 jiaowu 放在 query 里不算教务域
-        assertFalse(JwUrls.isJwHost("https://evil.example.com/?x=jiaowu.juwp.edu.cn"))
+        assertTrue(JwUrls.isJwHost(JwUrls.ENTRY))
+        // host 精确比较：把教务域名放进 query、或换个域名冒充，都不算教务域
+        assertFalse(JwUrls.isJwHost("https://evil.example.com/?x=${JwUrls.hostOf(JwUrls.SCHEDULE_LIST)}"))
+        assertFalse(JwUrls.isJwHost("https://portal.example.edu/cas/login"))
+        assertFalse(JwUrls.isJwHost(null))
     }
 
     // ---- 错误码常量与 WebViewClient 对齐 ----

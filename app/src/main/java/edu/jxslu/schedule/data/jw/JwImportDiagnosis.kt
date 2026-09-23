@@ -56,8 +56,9 @@ object JwImportDiagnosis {
      * - 统一认证/SSO 页：认证链未走完 → 入口
      * - 其它（如已登录后的课表页自身 5xx）：就地重放
      *
-     * 回的是 [JwUrls.SSO_WARMUP] 而非 CAS 直链：前者先落教务域写 `bzb_njw`
-     * （票据校验依赖它，见该常量注释），再由页面 JS 跳到**同一个** CAS 地址。
+     * 回的是 [JwUrls.SSO_WARMUP] 而不是普通 reload：强智链路上它先落教务域写 `bzb_njw`
+     * （票据校验依赖它，见该常量注释），再由页面 JS 跳到**同一个** CAS 地址；
+     * 正方链路上它与 [JwUrls.ENTRY] 同为登录页，回入口就是让用户重新登录一次。
      */
     fun retryUrl(failedUrl: String?): String? = when {
         failedUrl.isNullOrBlank() -> JwUrls.SSO_WARMUP
@@ -101,7 +102,8 @@ object JwImportDiagnosis {
                 "HTTPS 握手失败" to "TLS 阶段失败，若开着代理则证书可能被中间替换。"
 
             else ->
-                "无法连接认证/教务" to "请确认能访问 eapp2.juwp.edu.cn 与 jiaowu.juwp.edu.cn。"
+                "无法连接认证/教务" to
+                    "请确认能访问 ${hostOf(JwUrls.ENTRY)} 与 ${JwUrls.hostOf(JwUrls.SCHEDULE_LIST)}。"
         }
         return Diagnosis(
             title = title,
@@ -139,6 +141,9 @@ object JwImportDiagnosis {
      * 含 `#loginDiv` 与密码输入框）。因此从 URL 完全看不出未登录，
      * 旧逻辑会把登录页当「课表页已打开」并通过 `xsMainV` 分支自动跳课表 → 课表又是登录页
      * → 两者互跳成环（实测 18 次导航）。判别只能靠页面特征，见 [probeSessionLost]。
+     *
+     * 正方不适用这一条：未登录时它跳转到独立的 `login_slogin` 页（URL 就看得出来），
+     * 用户在那一页正常登录即可，不该盖「会话已失效」浮层（见 JwImportScreen.isLoginLikeUrl）。
      */
     fun sessionLost(vpnActive: Boolean): Diagnosis = Diagnosis(
         title = "未登录 / 会话已失效",

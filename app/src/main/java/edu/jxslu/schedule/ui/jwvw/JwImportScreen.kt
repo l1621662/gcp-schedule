@@ -67,9 +67,9 @@ import edu.jxslu.schedule.data.jw.JwImportDiagnosis
 import edu.jxslu.schedule.data.jw.JwSchedulePage
 import edu.jxslu.schedule.data.jw.JwUrls
 import edu.jxslu.schedule.data.jw.JwVpnDetector
-import edu.jxslu.schedule.data.jw.QiangzhiScheduleParser
-import edu.jxslu.schedule.data.jw.ScoreParser
 import edu.jxslu.schedule.data.jw.SyjxScheduleParser
+import edu.jxslu.schedule.data.jw.ZhengfangScheduleParser
+import edu.jxslu.schedule.data.jw.ZhengfangScoreParser
 import edu.jxslu.schedule.data.jw.unwrapJsString
 import edu.jxslu.schedule.domain.CourseKind
 import edu.jxslu.schedule.domain.ExamMapper
@@ -120,8 +120,7 @@ fun JwImportScreen(
     var pendingScores by remember { mutableStateOf<List<Pair<String, List<edu.jxslu.schedule.domain.ScoreRecord>>>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var pageState by remember { mutableStateOf<PageState>(PageState.Loading) }
-    var statusNote by remember { mutableStateOf("正在打开学校统一身份认证登录…") }
-    var autoNavPending by remember { mutableStateOf(false) }
+    var statusNote by remember { mutableStateOf("正在打开教务登录页…") }
     // 主 frame 最近一次失败的 URL，由失败回调写入、由 URL 相同的 onPageFinished 消费。
     //
     // 为什么必须按 URL 匹配 + 一次性消费（2026-09-18 手机日志实证）：500 响应体与
@@ -176,8 +175,10 @@ fun JwImportScreen(
      * `xsMainV` 当「已登录主页」并自动跳课表，于是主页登录页 → 课表登录页 →
      * 又认出 xsMainV… 互跳成环（日志里 18 次导航、约 1 秒一轮）。
      *
-     * ⚠️ 只在教务域（[JwUrls.isJwHost]）判定。统一认证 CAS（eapp2）的登录页**本来就该**
-     * 有密码框，在那里判定会把「用户正在登录」误报成「会话失效」，直接毁掉登录流程。
+     * ⚠️ 只在教务域（[JwUrls.isJwHost]）判定。判据是**强智式就地登录页**的两个标志
+     * （`loginDiv` + 密码框，见 [JwImportDiagnosis.looksLikeLoginPage]）；正方登录页是独立的
+     * `login_slogin` 页、不含 `loginDiv`，未登录时用户看到的就是登录页本身（状态条提示登录，
+     * 不盖错误浮层），因此不会被这条判据误报成「会话失效」。
      */
     fun checkSessionLost(view: WebView?, url: String?, onDone: () -> Unit = {}) {
         if (!JwUrls.isJwHost(url)) {
@@ -205,10 +206,10 @@ fun JwImportScreen(
         // （考试安排走同源 fetch JSON 接口，由 onClick 分派给 runExamImport，不进本函数）
         val pageKind = JwUrls.schedulePageKind(currentUrl)
         val extractJs = when (pageKind) {
-            JwSchedulePage.Theory -> QiangzhiScheduleParser.EXTRACT_JS
+            JwSchedulePage.Theory -> ZhengfangScheduleParser.EXTRACT_JS
             JwSchedulePage.Lab -> SyjxScheduleParser.EXTRACT_JS
             JwSchedulePage.None -> {
-                val msg = "当前不是课表页。请先点「理论课表」或「实验课表」，打开后再导入。"
+                val msg = "当前不是课表页。请先点上方「教务主页」，在教务里打开课表查询页后再导入。"
                 statusNote = msg
                 scope.launch { snackbar.showSnackbar(msg) }
                 return
@@ -222,7 +223,7 @@ fun JwImportScreen(
             val payload = unwrapJsString(raw)
             val result = when (pageKind) {
                 JwSchedulePage.Lab -> SyjxScheduleParser.parseExtractJson(payload)
-                else -> QiangzhiScheduleParser.parseExtractJson(payload)
+                else -> ZhengfangScheduleParser.parseExtractJson(payload)
             }
             when (result) {
                 is ImportParseResult.Failure -> {
@@ -380,15 +381,15 @@ fun JwImportScreen(
             do {
                 val body = fetchJsonInWebView(
                     wv,
-                    ScoreParser.fetchJs(term = "", page = page),
-                    ScoreParser.READ_RESULT_JS,
+                    ZhengfangScoreParser.fetchJs(page = page),
+                    ZhengfangScoreParser.READ_RESULT_JS,
                 ) ?: run {
                     statusNote = "请求超时：请检查网络后重试"
                     snackbar.showSnackbar(statusNote)
                     return
                 }
                 val parsed = try {
-                    ScoreParser.parseFetchJson(body)
+                    ZhengfangScoreParser.parseFetchJson(body)
                 } catch (e: Exception) {
                     statusNote = e.message ?: "解析失败"
                     snackbar.showSnackbar(statusNote)
@@ -415,13 +416,14 @@ fun JwImportScreen(
     // 独立 Activity 窗口：inset 全部走 M3 默认——TopAppBar 消费状态栏、
     // Scaffold contentWindowInsets 提供底部导航栏 inset（导入按钮区不压手势条）。
     // 此前为「嵌在外层 Scaffold 里」做的双 inset 规避已随窗口拆分一起移除。
+    var desktopMode by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
                         Text(
-                            if (mode == JwImportMode.Scores) "成绩导入 · 统一认证" else "教务导入 · 统一认证",
+                            if (mode == JwImportMode.Scores) "成绩导入 · 正方教务" else "课表导入 · 正方教务",
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
@@ -436,34 +438,51 @@ fun JwImportScreen(
                 navigationIcon = {
                     IconButton(onClick = {
                         val wv = webView
-                        if (wv != null && canGoBack) wv.goBack() else onBack()
+                        if (wv != null && wv.canGoBack()) wv.goBack() else onBack()
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
+                    // 电脑模式切换
+                    TextButton(
+                        onClick = {
+                            desktopMode = !desktopMode
+                            webView?.let { wv ->
+                                // 切回手机版要恢复 WebView 默认 UA：赋 null 在部分 ROM 上会留下空/
+                                // 字面量 UA，而正方按 UA 分设备分支，页面就废了。
+                                wv.settings.userAgentString =
+                                    if (desktopMode) DESKTOP_USER_AGENT
+                                    else WebSettings.getDefaultUserAgent(context)
+                                statusNote = if (desktopMode) "正在切换到电脑版…" else "正在切换到手机版…"
+                                wv.reload()
+                            }
+                        }
+                    ) {
+                        Text(if (desktopMode) "手机版" else "电脑版")
+                    }
+                    // 刷新按钮
                     IconButton(
                         onClick = {
                             // 先取出错误态里的重试目标，再改状态（顺序反了就永远读到 Loading）
                             val retry = (pageState as? PageState.Error)?.retryUrl
                             pageState = PageState.Loading
-                            autoNavPending = false
                             // 用户显式重试 = 新的一轮，自动重试闸门重新打开
                             autoRetryUsed = false
-                            // 错误态下刷新不是无脑 reload：失败 URL 若是 CAS/SSO 页（含一次性 ticket），
-                            // 重放它必然失败，只能回入口重新走认证
+                            // 错误态下刷新不是无脑 reload：retryUrl 非空说明这一页不能重放
+                            // （认证页/空页），必须改走入口，否则只会再撞一次同样的失败
                             if (retry.isNullOrBlank()) {
                                 statusNote = "重新加载中…"
                                 webView?.reload()
                             } else {
-                                statusNote = "重新打开统一认证…"
+                                statusNote = "重新打开登录页…"
                                 webView?.loadUrl(retry)
                             }
-                        },
+                        }
                     ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                        Icon(imageVector = Icons.Filled.Refresh, contentDescription = "刷新")
                     }
-                },
+                }
             )
         },
         snackbarHost = { AppSnackbarHost(snackbar) },
@@ -557,30 +576,40 @@ fun JwImportScreen(
                                                 Log.d(TAG, "viewport probe: $raw")
                                             }
                                         }
+                                        // 电脑模式:新页面是全新 DOM,上次注入的 viewport 改动
+                                        // 不会带过来,必须在每次加载完成后按当前模式重新打一次
+                                        if (desktopMode) {
+                                            view?.evaluateJavascript(
+                                                """
+                                                (function() {
+                                                    var meta = document.querySelector('meta[name="viewport"]');
+                                                    if (!meta) {
+                                                        meta = document.createElement('meta');
+                                                        meta.name = 'viewport';
+                                                        document.head.appendChild(meta);
+                                                    }
+                                                    meta.setAttribute('content', 'width=1280, initial-scale=1');
+                                                })();
+                                                """.trimIndent(),
+                                                null
+                                            )
+                                        }
 
-                                        // 会话检查必须**先于所有自动导航**：未登录时教务把登录页
-                                        // 就地渲染在 xsMainV / xskb_list 这些 URL 上（HTTP 200、URL 不变），
-                                        // 若先按 URL 自动跳课表，就会与课表页的「登录页」互跳成环。
-                                        // 探针是异步的，故以下所有「就绪/自动跳转」逻辑都挪进它的回调。
-                                        // CAS（eapp2）域内的登录页是正常流程，helper 内部已排除。
+                                        // 会话检查必须先于「就绪」判定：未登录时强智会把登录页就地渲染在
+                                        // xsMainV / xskb_list 这些 URL 上（HTTP 200、URL 不变），只看 URL
+                                        // 会把它当成已打开的页面。探针是异步的，判定放在它的回调里。
                                         checkSessionLost(view, u) {
                                             // 注意：两张课表的 URL 都含 "xskb"（理论 xskb_list、实验 toXskb），
                                             // 不能用子串判断，必须按页面类型区分，否则会互相误判
                                             val page = JwUrls.schedulePageKind(u)
-                                            // 成绩模式登录后直达成绩查询页；固定跳理论课表
-                                            // 会让成绩导入每次都落到课表页、再手动点一次入口
-                                            val autoNavTarget = when (mode) {
-                                                JwImportMode.Scores -> JwUrls.SCORE_FRM
-                                                JwImportMode.Schedule -> JwUrls.SCHEDULE_LIST
-                                            }
                                             statusNote = when {
-                                                "eapp2.juwp.edu.cn" in u ->
-                                                    "请使用学校统一身份认证登录"
-                                                "xsMainV" in u ->
+                                                isLoginLikeUrl(u) ->
+                                                    "请在上方登录教务系统"
+                                                isStudentHomeUrl(u) ->
                                                     if (mode == JwImportMode.Scores) {
-                                                        "已登录教务主页，正在打开成绩查询页…"
+                                                        "已登录教务主页，点上方「成绩查询页」后导入"
                                                     } else {
-                                                        "已登录教务主页，正在打开学期理论课表…"
+                                                        "已登录教务主页，从教务菜单进课表查询页后回来导入"
                                                     }
                                                 page == JwSchedulePage.Exam ->
                                                     "考试安排查询已打开。点下方「导入考试安排」。"
@@ -588,27 +617,15 @@ fun JwImportScreen(
                                                     "实验课表已打开。点下方「导入实验课表」。"
                                                 page == JwSchedulePage.Theory ->
                                                     "理论课表已打开。点下方「导入理论课表」。"
-                                                "cjcx_frm" in u ->
+                                                JwUrls.SCORE_FRM.substringBefore('?') in u ->
                                                     "成绩查询页已打开。点下方「导入成绩」。"
                                                 else -> "已登录教务，可从下方入口打开课表页"
                                             }
 
-                                            if ("xsMainV" in u && !autoNavPending) {
-                                                autoNavPending = true
-                                                pageState = PageState.Loading
-                                                // 500ms 只留一个「已登录」的可见过渡；跳转目标按模式固定，
-                                                // postDelayed 内仍会复核 currentUrl，重定向链乱序也不会跳错
-                                                view?.postDelayed({
-                                                    if (currentUrl.contains("xsMainV")) {
-                                                        view.loadUrl(autoNavTarget)
-                                                    } else {
-                                                        autoNavPending = false
-                                                    }
-                                                }, 500)
-                                                return@checkSessionLost
-                                            }
+                                            // 🚫 这里**不要**再自动跳课表/成绩页（2026-09-23 用户真机反馈）：
+                                            // 正方登录后立刻被顶到课表查询页时页面打不开，必须停在教务首页，
+                                            // 由用户自己在教务里点进课表查询页，再用底部按钮导入。
                                             if (page != JwSchedulePage.None) {
-                                                autoNavPending = false
                                                 pageState = PageState.Ready
                                                 applyPageFit(view, u)
                                                 return@checkSessionLost
@@ -751,7 +768,6 @@ fun JwImportScreen(
                         error = err,
                         onRetry = {
                             pageState = PageState.Loading
-                            autoNavPending = false
                             // 用户显式重试 = 新的一轮，自动重试闸门重新打开
                             autoRetryUsed = false
                             // err.retryUrl 为空 = 失败页可安全重放（如课表页自己 5xx）；
@@ -781,57 +797,48 @@ fun JwImportScreen(
                     // 两个入口分开：两张课表结构不同，走哪个入口就用哪个解析器，
                     // 不让用户在「导入」时再猜自己开的是哪一页
                     if (mode == JwImportMode.Schedule) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // 1. 改为“教务主页”按钮
                             ScheduleEntryButton(
-                                label = "理论课表",
-                                active = pageKind == JwSchedulePage.Theory,
+                                label = "教务主页",
+                                active = false, // 首页不需要高亮
                                 enabled = !busy,
                                 onClick = {
                                     pageState = PageState.Loading
-                                    statusNote = "打开学期理论课表…"
-                                    autoNavPending = false
-                                    // 用户显式发起新一轮导航：自动重试闸门重置
+                                    statusNote = "正在打开教务主页..."
                                     autoRetryUsed = false
-                                    webView?.loadUrl(JwUrls.SCHEDULE_LIST)
+                                    // 直接加载你的学校教务主页
+                                    webView?.loadUrl("https://jwcjw.gcp.edu.cn/")
                                 },
                                 modifier = Modifier.weight(1f),
                             )
+
+                            // 2. 保留“考试安排”按钮
                             ScheduleEntryButton(
-                                label = "实验课表",
-                                active = pageKind == JwSchedulePage.Lab,
+                                label = "考试安排",
+                                active = pageKind == JwSchedulePage.Exam,
                                 enabled = !busy,
                                 onClick = {
                                     pageState = PageState.Loading
-                                    statusNote = "打开实验课表（实践实验 → 实验课表查询）…"
-                                    autoNavPending = false
+                                    statusNote = "打开考试安排..."
                                     autoRetryUsed = false
-                                    webView?.loadUrl(JwUrls.LAB_SCHEDULE)
+                                    webView?.loadUrl(JwUrls.EXAM_QUERY)
                                 },
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        ScheduleEntryButton(
-                            label = "考试安排",
-                            active = pageKind == JwSchedulePage.Exam,
-                            enabled = !busy,
-                            onClick = {
-                                pageState = PageState.Loading
-                                statusNote = "打开考试安排查询…"
-                                autoNavPending = false
-                                autoRetryUsed = false
-                                webView?.loadUrl(JwUrls.EXAM_QUERY)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
                     } else {
+                        // 成绩模式不能靠「登录后自动跳」了（见上），必须有显式入口
                         ScheduleEntryButton(
-                            label = "打开成绩查询页",
-                            active = "cjcx_frm" in currentUrl,
+                            label = "成绩查询页",
+                            active = JwUrls.SCORE_FRM.substringBefore('?') in currentUrl,
                             enabled = !busy,
                             onClick = {
                                 pageState = PageState.Loading
-                                statusNote = "打开成绩查询页…"
-                                autoNavPending = false
+                                statusNote = "正在打开成绩查询页…"
                                 autoRetryUsed = false
                                 webView?.loadUrl(JwUrls.SCORE_FRM)
                             },
@@ -1161,9 +1168,23 @@ private val LOGIN_FIT_JS: String = """
 })()
 """.trimIndent()
 
-/** 只有真正的登录/SSO 页才需要表单兜底。 */
+/**
+ * 只有真正的登录页才需要表单兜底与「请登录」提示。
+ *
+ * 强智（旧链路）：`/cas/login`、`Logon.do`、`/sso.jsp`；
+ * 正方：`/jwglxt/xtgl/login_slogin.html`——登录失效与登录失败都回落到它，按 URL 判定即可，
+ * 不用赌登录页的 DOM 结构。
+ */
 private fun isLoginLikeUrl(url: String): Boolean =
-    "/cas/login" in url || "Logon.do" in url || "/sso.jsp" in url
+    "/cas/login" in url || "Logon.do" in url || "/sso.jsp" in url ||
+        "login_slogin" in url || "/xtgl/login" in url
+
+/**
+ * 学生端主页：正方登录成功后落在 `/jwglxt/xtgl/index_init.html`（旧强智是 `xsMainV`）。
+ * 两套都认，自动跳转目标才不会因换学校而失效。
+ */
+private fun isStudentHomeUrl(url: String): Boolean =
+    "index_init" in url || "xsMainV" in url
 
 /** 按页面类型注入适配样式；幂等，重复调用无副作用。 */
 private fun applyPageFit(view: WebView?, url: String?) {
@@ -1178,6 +1199,11 @@ private fun applyPageFit(view: WebView?, url: String?) {
 }
 
 private const val TAG = "JwWebView"
+
+/** 电脑版 UA：切到电脑版时用；切回手机版恢复 WebView 默认 UA（见顶栏切换按钮）。 */
+private const val DESKTOP_USER_AGENT: String =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 /**
  * 布局后 reflow + 视口探针：给页面补派一次 resize（Compose 0×0 → 全屏的测量时序
