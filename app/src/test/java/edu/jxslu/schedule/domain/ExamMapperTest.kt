@@ -22,8 +22,10 @@ class ExamMapperTest {
         assertEquals(1..2, ExamMapper.sectionsForTimeRange(slots, "08:30", "09:55"))
         assertEquals(3..4, ExamMapper.sectionsForTimeRange(slots, "10:15", "11:40"))
         assertEquals(5..6, ExamMapper.sectionsForTimeRange(slots, "14:00", "15:25"))
-        assertEquals(7..8, ExamMapper.sectionsForTimeRange(slots, "15:45", "17:10"))
-        assertEquals(9..10, ExamMapper.sectionsForTimeRange(slots, "19:00", "20:25"))
+        assertEquals(7..8, ExamMapper.sectionsForTimeRange(slots, "15:40", "17:05"))
+        // 第 5 个大节 9/10/11 = 18:30–20:40（2026-09-23 作息）
+        assertEquals(9..10, ExamMapper.sectionsForTimeRange(slots, "18:30", "19:55"))
+        assertEquals(9..11, ExamMapper.sectionsForTimeRange(slots, "18:30", "20:40"))
     }
 
     @Test

@@ -30,7 +30,7 @@
 | Kotlin | **2.1.21**（+ compose / serialization / KSP 同版本） |
 | Room | **2.7.1**（2.6 + Kotlin 2.1 会 KSP `unexpected jvm signature V`） |
 | Room DB | **v6**：v2 加 `courses.kind`（理论/实验），v3 加多课表（`timetables` 表 + `courses.timetableId`），v4 加成绩表 `scores`，v5 加调课检测（`detect_baselines`/`detect_reports`），v6 加一卡通流水（`ykt_turnovers`，**2026-09-23 该功能已移除，表与迁移保留、无实体**）。逐级 `ALTER TABLE`/`CREATE TABLE`，**禁止**改 destructive |
-| 作息表 | **11 小节**（每节 40 分钟，大节内 5 分钟、大节之间 20 分钟换教室），见 DESIGN 3.5 |
+| 作息表 | **11 小节**（每节 40 分钟，大节内 5 分钟；跨大节：1-2→3-4 为 20 分钟、5-6→7-8 为 15 分钟、3-4→5-6 午休 140、7-8→9-11 晚饭 85）。2026-09-23 起 7–11 节为本校实际作息，schema v2，见 DESIGN 3.5 |
 | 课表网格 | 行号 = **小节号 1–11**（不是大节号）；`Course.startSection/endSection` 也是小节号 |
 | HugeIcons | `com.github.rikkahub:hugeicons-compose:1.4`（**JitPack**，**`isTransitive = false`**） |
 | Glance | `androidx.glance:glance-appwidget:1.2.0`（桌面小组件，单条目 `SizeMode.Exact`）；传递抬 compose runtime 至 1.7.8，`androidx.core` 仍 1.15.0 |

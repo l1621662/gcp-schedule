@@ -71,9 +71,9 @@ class ScheduleCalculatorTest {
         assertNull(ScheduleCalculator.currentSection(slots, LocalTimeLike(10, 0)))
         // 午休
         assertNull(ScheduleCalculator.currentSection(slots, LocalTimeLike(12, 0)))
-        // 晚自习段
-        assertEquals(11, ScheduleCalculator.currentSection(slots, LocalTimeLike(21, 0)))
-        assertNull(ScheduleCalculator.currentSection(slots, LocalTimeLike(21, 30)))
+        // 晚自习段（第 11 节 20:00–20:40）
+        assertEquals(11, ScheduleCalculator.currentSection(slots, LocalTimeLike(20, 10)))
+        assertNull(ScheduleCalculator.currentSection(slots, LocalTimeLike(21, 0)))
     }
 
     @Test
@@ -158,13 +158,13 @@ class ScheduleCalculatorTest {
     @Test
     fun dayLastEndMinutesTakesLatestEndOfTheDay() {
         val normal = Course(1, "早课", "", "", 1, 1, 2, setOf(1)) // 08:30-09:55
-        val late = Course(2, "晚课", "", "", 1, 9, 11, setOf(1)) // 19:00-21:10
+        val late = Course(2, "晚课", "", "", 1, 9, 11, setOf(1)) // 18:30-20:40
         val custom = Course(
             3, "自定", "", "", 1, 1, 1, setOf(1),
             isCustomTime = true, customStartTime = "18:00", customEndTime = "20:00",
         )
-        // 最晚的是晚课 21:10，自定义的 20:00 不参与取最大
-        assertEquals(21 * 60 + 10, ScheduleCalculator.dayLastEndMinutes(listOf(normal, late, custom), slots, 1))
+        // 最晚的是晚课 20:40，自定义的 20:00 不参与取最大
+        assertEquals(20 * 60 + 40, ScheduleCalculator.dayLastEndMinutes(listOf(normal, late, custom), slots, 1))
         // 自定义时间晚于作息表最后一节：以 customEndTime 为准
         val beyond = Course(
             4, "超晚", "", "", 2, 1, 1, setOf(1),

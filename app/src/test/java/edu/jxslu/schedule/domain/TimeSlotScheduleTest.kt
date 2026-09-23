@@ -34,39 +34,42 @@ class TimeSlotScheduleTest {
     }
 
     /**
-     * 大节内间隔 5 分钟；大节之间至少 20 分钟。
-     * 注意 11:40→14:00（140 分钟）与 17:10→19:00（110 分钟）是午休与晚饭，
-     * 不属于「换教室的 20 分钟」，所以这里分别断言而不是统一按 20 分钟。
+     * 大节内间隔 5 分钟；跨大节的间隔逐条钉死（工位换教室 / 午休 / 晚饭 各不同）。
+     *
+     * 2026-09-23 起本校实际作息：**6→7 只有 15 分钟**（15:25→15:40），
+     * 所以这里不再写成「跨大节一律 ≥20」，而是每个边界显式断言——
+     * 作息一旦被手滑改动，失败信息能直接指出是哪一段。
      */
     @Test
     fun gapsMatchBigSectionBoundaries() {
-        val lunchBreak = ScheduleCalculator.toMinutes(slots[4].startTime) -
-            ScheduleCalculator.toMinutes(slots[3].endTime)
-        val dinnerBreak = ScheduleCalculator.toMinutes(slots[8].startTime) -
-            ScheduleCalculator.toMinutes(slots[7].endTime)
-        assertEquals("午休", 140, lunchBreak)
-        assertEquals("晚饭", 110, dinnerBreak)
+        fun gap(from: Int, to: Int): Int =
+            ScheduleCalculator.toMinutes(slots[to].startTime) -
+                ScheduleCalculator.toMinutes(slots[from].endTime)
+
+        assertEquals("1-2 与 3-4 之间（换教室）", 20, gap(1, 2))
+        assertEquals("3-4 与 5-6 之间（午休）", 140, gap(3, 4))
+        assertEquals("5-6 与 7-8 之间（本校 15 分钟）", 15, gap(5, 6))
+        assertEquals("7-8 与 9-11 之间（晚饭）", 85, gap(7, 8))
 
         for (i in 0 until slots.size - 1) {
-            val gap = ScheduleCalculator.toMinutes(slots[i + 1].startTime) -
-                ScheduleCalculator.toMinutes(slots[i].endTime)
-            if (ScheduleCalculator.isBigSectionEnd(slots[i].number)) {
-                assertTrue("第 ${slots[i].number} 节后（跨大节）至少要有 20 分钟", gap >= 20)
-            } else {
-                assertEquals("第 ${slots[i].number} 节与大节内下一节之间", 5, gap)
+            val g = gap(i, i + 1)
+            if (!ScheduleCalculator.isBigSectionEnd(slots[i].number)) {
+                assertEquals("第 ${slots[i].number} 节与大节内下一节之间", 5, g)
             }
         }
     }
 
-    /** 起点与教务页一致 */
+    /** 关键锚点（2026-09-23 用户确认的本校作息） */
     @Test
-    fun anchorsMatchJiaowuPage() {
+    fun anchorsMatchSchoolTimetable() {
         assertEquals("08:30", slots.first().startTime)
-        assertEquals("21:10", slots.last().endTime)
+        assertEquals("20:40", slots.last().endTime)
         assertEquals("10:15", slots[2].startTime)
         assertEquals("14:00", slots[4].startTime)
-        assertEquals("15:45", slots[6].startTime)
-        assertEquals("19:00", slots[8].startTime)
+        assertEquals("15:40", slots[6].startTime)
+        assertEquals("16:25", slots[7].startTime)
+        assertEquals("18:30", slots[8].startTime)
+        assertEquals("20:00", slots[10].startTime)
     }
 
     /** 大节分组覆盖 1..11 且不重叠 */

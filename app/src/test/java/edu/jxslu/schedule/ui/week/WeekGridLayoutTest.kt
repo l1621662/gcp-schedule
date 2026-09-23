@@ -210,11 +210,11 @@ class WeekGridLayoutTest {
         assertDpEquals(l.bottomOf(2), m.offsetY, "刚下课应贴在上完那节的行底")
     }
 
-    /** 晚饭 17:10→19:00：18:50 已经离 19:00 更近，应贴在第 9 节的行顶 */
+    /** 晚饭 17:05→18:30：18:25 已经离 18:30 更近，应贴在第 9 节的行顶 */
     @Test
     fun nowMarkerSnapsToUpcomingSectionNearItsStart() {
         val l = layout()
-        val m = nowMarker(slots, l, LocalTimeLike(18, 50), scheduleEndMinutes)!!
+        val m = nowMarker(slots, l, LocalTimeLike(18, 25), scheduleEndMinutes)!!
         assertTrue(m.inBreak)
         assertDpEquals(l.topOf(9), m.offsetY, "临近上课应贴在下一节的行顶")
     }
