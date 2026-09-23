@@ -64,7 +64,7 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
 `ScoreGroupsTest`（成绩学年分组与年级标签）、
 `ShortcutsTest`（快捷方式：拉起口径/表单校验/预设表/JSON 兜底/列表操作）、
 `ScheduleDetectTest`（调课检测三方合并：归因/冲突/调课不误报/序列化 roundtrip）、
-`JwHttpSessionTest`（检测登录链路：重定向解析参数顺序、IPv4 优先 DNS）、
+`ZfJwSessionTest`（正方无界面登录：csrf/验证码标记解析、学期编码、会话 cookie 往返、IPv4 优先 DNS）、
 `ZhengfangScheduleParserTest`（正方课表：周次单双周/节次范围/注入 JSON）、
 `ZhengfangScoreParserTest`（正方成绩：分页脚本/字段映射/失败口径）
 等 32 个测试类。
@@ -172,7 +172,7 @@ JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件�
 ```
 
 - 课表 JSON 字段对齐 DESIGN 4.3 / 拾光互通；解析层见 `scripts/fetch_courses.py` 与 `data/jw/`
-- 教务：强智 `https://jiaowu.juwp.edu.cn:81/` → SSO service 必须是 `http://jiaowu.juwp.edu.cn/sso.jsp`（**不要带 :81/:8080**）→ 课表 `http://jiaowu.juwp.edu.cn:8080/jsxsd/xskb/xskb_list.do?viweType=0`
+- 教务：**正方** `https://jwcjw.gcp.edu.cn`；登录 `/jwglxt/xtgl/login_slogin.html`（需验证码，图片接口 `/jwglxt/kaptcha?time=…`）→ 课表 `/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html`，数据接口 `/jwglxt/kbcx/xskbcx_cxKbxx.html`（DESIGN §4.4/§4.17）
 - 解析 HTML 用注入 JS 抽 `li.courselists-item`；Kotlin 侧 `html.parser` 思路，**lxml 会丢节点**（双 doctype）
 
 ## 硬性禁止

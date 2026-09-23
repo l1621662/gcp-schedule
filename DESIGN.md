@@ -591,7 +591,9 @@ JSON 导入导出字段名与上述一致，便于与拾光用户互导。
 
 > 强智（江西水利电力大学）那套「统一认证 CAS + `sso.jsp` + `xskb_list.do`」链路已随 2026-09-23
 > 的改版从导入路径移除。`QiangzhiScheduleParser` / `SyjxScheduleParser` / `ScoreParser` 与
-> `JwHttpSession` 仍被调课检测（§4.17）引用，迁移完成前**不要删**。
+> 调课检测（§4.17）已迁到 `ZfJwSession`（正方无界面登录）；强智的 `QiangzhiScheduleParser` /
+> `SyjxScheduleParser` / `ScoreParser` 现在只剩自身单测在引用，属可清理的死代码（`ExamScheduleParser`
+> 例外——考试导入入口保留，见 §4.14）。
 
 **导入窗口锁竖屏（2026-09-19）**：`JwImportActivity` 声明 `screenOrientation="portrait"`——
 转屏会销毁 WebView（登录密码输到一半全没）并取消 `rememberCoroutineScope` 里的导入协程。
@@ -1233,45 +1235,44 @@ diff(base→ours) 只用于冲突判定，不进报告。
 「忽略本次」不动库、不刷新基线（下次照报）。
 报告持久化（`detect_reports` 表，每课表一条最新），气泡与两个入口读的就是它。
 
-#### 登录与抓取链路（`data/jw/JwHttpSession.kt`，OkHttp 复刻 `scripts/jw_session.py`）
+#### 登录与抓取链路（`data/jw/ZfJwSession.kt`，无界面 HTTP）
 
-五步：POST CAS 表单 → 预热 `:81/`（bzb_njw）→ 取 SSO ticket → sso.jsp 302 链 →
-会话校验（xsMainV 字节数阈值）。独立 CookieJar，与 WebView CookieManager 互不干扰。
-每次检测全量重登，不依赖会话保持——教务会话超时不构成障碍。失败四分类：
+正方没有 CAS：登录就是单站点表单，因此整条链路重写（旧的强智 `JwHttpSession` 已随迁移删除）。
 
-| 分类 | 判定 | 处理 |
-|------|------|------|
-| 凭证错 | CAS POST 后无 Location | **连续 3 次 → 自动停用 + 通知**（防触发验证码锁号）；用户重新开启时计数清零 |
-| 网络/超时 | IOException | 静默记 lastError，不通知 |
-| 教务异常 | 5xx / 会话校验不过 | 同上 |
-| 代理出口 | `JwVpnDetector` 命中 | 检测**之前**跳过（学校对代理出口区别对待，§4.4），不消耗失败计数 |
+```
+GET  /jwglxt/xtgl/login_slogin.html   → 会话 cookie + #csrftoken
+GET  /jwglxt/kaptcha?time=<ms>        → 验证码 JPEG（108×34，实测 4KB 级）
+POST /jwglxt/xtgl/login_slogin.html   → csrftoken / language / yhm / mm / yzm
+POST /jwglxt/kbcx/xskbcx_cxKbxx.html  → 课表 JSON（kbList[]）
+```
 
-**两个曾致开启流程 100% 失败的缺陷（2026-09-19 修复）**：
+**这个学校的验证码是必填的**（登录页 `#yzmDiv` 可见、`dlmmsfknt=1` 区分大小写），所以：
 
-1. **重定向解析参数顺序写反**：`getFollowRedirects` 里写成
-   `location.toHttpUrl().resolve(current)`——`current` 是绝对 URL，以它为被解析对象时
-   结果是自身，于是每轮请求同一 URL，原地打转 `MAX_REDIRECTS` 次后误报
-   「重定向次数过多，链路可能已变」。正确写法 `current.toHttpUrl().resolve(location)`
-   （以当前 URL 为基准解析 Location，绝对/相对/协议相对三种形态都正确）。
-   回归钉：`JwHttpSessionTest.redirectResolve_*`。
-2. **校园 IPv6 黑洞**：三个校园域同时有 A 与 AAAA 记录（`portal`/`eapp2` 走 2001:250::/32），
-   而校园 v6 在移动网络下不可达——实测连 TCP 超时要等 31 秒才落回 v4。
-   OkHttp 默认按系统解析顺序（v6 优先）建连，每步都白等超时。
-   修复：`Ipv4FirstDns`（`Dns` 实现，v4 排前、AAAA 不丢弃），链路从「每步干等」回到秒级。
-   回归钉：`JwHttpSessionTest.ipv4FirstDns_*`。
+| 场景 | 做法 |
+|------|------|
+| 开启 / 重新验证 | 设置页给「学号 + 密码 + 验证码」；验证码图片直接取 `kaptcha` 接口，点图换一张。图片只解码到内存 Bitmap，不落盘、不进相册、不进日志 |
+| 后台定时检测 | **不能自己登录**（验证码得人看）→ 复用手动验证成功时存下的会话 cookie（加密存储）；cookie 过期就跳过并提示「需手动验证一次」，且不消耗失败计数 |
+| 密码加密 | 本校准 `mmsfjm=0`（明文提交）；若某校置 1，则先取 `/jwglxt/xtgl/login_getPublicKey.html` 做 RSA(PKCS#1 v1.5) 再提交 |
 
-此外，开启流程外层包了 `withTimeoutOrNull(60s)` 总超时：单请求各有 connect/read 超时，
-但链路含多步重定向，最坏情况叠加仍可能长时间无结果——宁可明确报「登录超时」也不无限转圈。
+失败分类沿用：账号/密码/验证码错 → **连续 3 次自动停用 + 通知**（防触发锁号）；
+网络/协议错 → 静默记 `lastError`；代理出口 → 检测**之前**跳过（§4.4）。
+
+**IPv4 优先**（旧回归的教训保留）：校园域同时有 A 与 AAAA，而校园 v6 在移动网络下是黑洞
+（实测 TCP 超时要等 31 秒才回落 v4）。`ZfJwSession.Ipv4FirstDns` 把 v4 排前、AAAA 不丢弃。
+回归钉：`ZfJwSessionTest.ipv4First_*`。
+
+开启流程外层仍包 `withTimeoutOrNull(60s)` 总超时：单请求各有 connect/read 超时，
+但链路是多步，最坏情况叠加仍可能长时间无结果——宁可明确报「登录超时」也不无限转圈。
 
 #### 抓取与解析
 
-- 理论：`GET xskb_list.do?viweType=0&xnxq01id=<本地学期>` →
-  `QiangzhiScheduleParser.parseFromHtml`（已有 HTML 备用路径）。
-- 实验：`GET syjx/toXskb.do?xnxq01id=<本地学期>` →
-  `SyjxScheduleParser.parseFromHtml`（HTML 备用路径已存在，行分组抽取与聚合内置）。
-- 学期口径：页面下拉 selected ≠ 请求学期 → 判「学期口径异常」，不发差异报告；
-  「教务当前学期」（无参 GET 读 selected）≠ 本地课表学期 → 状态区提示
-  「教务已切换学期」——跨学期不 diff，是新建基线的机会。
+- 课表：`POST xskbcx_cxKbxx.html`（`xnm` / `xqm` / `kzlx=ck` / `kbs=1`）→ `kbList[]`：
+  `kcmc` 课名、`xqj` 星期、`jcs` 节次（`"1-2"`）、`zcd` 周次（`"1-16周"`，单双周复用
+  `ZhengfangScheduleParser.parseWeeks`）、`cdmc` 地点、`xm` 教师。
+  **正方把实验课排在同一张表里**，所以不再分别抓理论/实验（§4.8 已停用）。
+- 学期：优先读课表查询页选中的 `xnm/xqm`（`3/12/16` → 第 1/2/3 学期），抓不到就用接口默认学期；
+  「教务当前学期 ≠ 本地课表学期」→ 状态区提示「教务已切换学期」，跨学期不 diff，是重建基线的机会。
+
 
 #### 差异模型（`domain/ScheduleDetect.kt`，纯 JVM 可测）
 
@@ -1337,7 +1338,7 @@ diff(base→ours) 只用于冲突判定，不进报告。
 
 #### 阶段拆解
 
-D1 领域纯函数 + 测试 → D2 数据层（`JwHttpSession` / 基线 / 凭证；两课表 HTML 解析已有备用路径）→
+D1 领域纯函数 + 测试 → D2 数据层（`ZfJwSession` 无界面登录 + 会话复用 / 基线 / 凭证）→
 D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 真机验证 + scripts/README 口径收口。
 
 ### 4.18 共享单车扫码（2026-09-20，P6；UI 规格见 §3.9）

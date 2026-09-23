@@ -1,7 +1,13 @@
 package edu.jxslu.schedule.ui.detect
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -39,7 +46,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -52,13 +63,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import edu.jxslu.schedule.Graph
 import edu.jxslu.schedule.data.jw.JwDetectRunner
 import edu.jxslu.schedule.data.jw.JwDetectScheduler
-import edu.jxslu.schedule.data.jw.JwHttpSession
+import edu.jxslu.schedule.data.jw.ZfJwSession
 import edu.jxslu.schedule.data.prefs.DetectDefaults
 import edu.jxslu.schedule.data.prefs.DetectSettings
 import edu.jxslu.schedule.ui.common.AppNoticeVisuals
 import edu.jxslu.schedule.ui.common.AppSnackbarHost
 import edu.jxslu.schedule.ui.common.NoticeFeedback
 import edu.jxslu.schedule.ui.common.NoticeTone
+import edu.jxslu.schedule.ui.common.rememberAppHaptics
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -93,8 +107,29 @@ fun TweakDetectScreen(
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var captchaCode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var confirmDisable by remember { mutableStateOf(false) }
+    val captchaState by viewModel.captcha.collectAsStateWithLifecycle()
+
+    /**
+     * 开启 / 重新验证共用同一条口径：验证码一次性，**成败都要清空输入框**，
+     * 失败时 ViewModel 会顺手换一张新图（旧码再用必然还是错）。
+     */
+    fun verifyAndEnable() {
+        if (busy) return
+        busy = true
+        viewModel.saveAndEnable(
+            username = username,
+            password = password,
+            captchaCode = captchaCode,
+        ) { feedback ->
+            busy = false
+            captchaCode = ""
+            if (feedback.tone != NoticeTone.Error) password = ""
+            scope.launch { snackbar.showSnackbar(AppNoticeVisuals(feedback.text, tone = feedback.tone)) }
+        }
+    }
 
     fun showOutcome(outcome: JwDetectRunner.Outcome) {
         when (outcome) {
@@ -159,21 +194,7 @@ fun TweakDetectScreen(
                             onCheckedChange = { wantOn ->
                                 if (busy) return@Switch
                                 if (wantOn) {
-                                    busy = true
-                                    viewModel.saveAndEnable(
-                                        username = username,
-                                        password = password,
-                                    ) { feedback ->
-                                        // ok 由语气体现：非错误即凭证有效、开关已打开，
-                                        // 输入框随之清空（下次进入不必重打密码）
-                                        busy = false
-                                        if (feedback.tone != NoticeTone.Error) password = ""
-                                        scope.launch {
-                                            snackbar.showSnackbar(
-                                                AppNoticeVisuals(feedback.text, tone = feedback.tone),
-                                            )
-                                        }
-                                    }
+                                    verifyAndEnable()
                                 } else {
                                     confirmDisable = true
                                 }
@@ -213,6 +234,25 @@ fun TweakDetectScreen(
                         ),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Spacer(Modifier.height(8.dp))
+                    CaptchaRow(
+                        state = captchaState,
+                        code = captchaCode,
+                        onCodeChange = { captchaCode = it },
+                        onRefresh = {
+                            captchaCode = ""
+                            viewModel.refreshCaptcha()
+                        },
+                    )
+                    if (settings.enabled) {
+                        Spacer(Modifier.height(8.dp))
+                        // 会话过期后靠这个按钮补一次验证（学号密码不用重打，只补验证码）
+                        OutlinedButton(
+                            onClick = { verifyAndEnable() },
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("重新验证（更新登录会话）") }
+                    }
                 },
             )
 
@@ -282,6 +322,88 @@ fun TweakDetectScreen(
     }
 }
 
+/**
+ * 验证码行（DESIGN §4.17）：左边输入框、右边图片，图片与输入框齐平（48dp），点图换一张。
+ *
+ * 图片就是登录页同源 `GET /jwglxt/kaptcha?time=…` 原样返回的 JPEG，只解码到内存 Bitmap：
+ * 不落盘、不进相册、不进日志——验证码属于登录凭证的一部分。
+ */
+@Composable
+private fun CaptchaRow(
+    state: TweakDetectViewModel.CaptchaState,
+    code: String,
+    onCodeChange: (String) -> Unit,
+    onRefresh: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OutlinedTextField(
+            value = code,
+            onValueChange = onCodeChange,
+            label = { Text("验证码") },
+            singleLine = true,
+            // 正方验证码区分大小写（登录页 dlmmsfknt=1），这里不做任何大小写转换
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Ascii,
+                imeAction = ImeAction.Done,
+            ),
+            modifier = Modifier.weight(1f),
+        )
+        CaptchaImage(state = state, onRefresh = onRefresh)
+    }
+}
+
+/** 验证码图片位：加载中转圈、失败显示「点击重试」，点击即换一张（带触感）。 */
+@Composable
+private fun CaptchaImage(state: TweakDetectViewModel.CaptchaState, onRefresh: () -> Unit) {
+    val haptics = rememberAppHaptics()
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        modifier = Modifier
+            .size(width = 128.dp, height = 48.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .clickable {
+                haptics.tap()
+                onRefresh()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        when (state) {
+            is TweakDetectViewModel.CaptchaState.Loading ->
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+
+            is TweakDetectViewModel.CaptchaState.Failed ->
+                Text("点击重试", style = MaterialTheme.typography.labelMedium)
+
+            is TweakDetectViewModel.CaptchaState.Ready -> {
+                val bytes = state.bytes
+                if (bytes == null) {
+                    Text("无需验证码", style = MaterialTheme.typography.labelMedium)
+                } else {
+                    val bitmap = remember(bytes) {
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                    }
+                    if (bitmap == null) {
+                        Text("点击重试", style = MaterialTheme.typography.labelMedium)
+                    } else {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = "验证码，点击刷新",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SettingsCard(
     title: String,
@@ -345,7 +467,58 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
     private val prefs = Graph.displayPrefs(appContext)
     private val credentialStore = Graph.jwCredentialStore(appContext)
 
+    /** 验证码现场：加载中 / 就绪（bytes = null 表示这套部署不需要验证码）/ 失败。 */
+    sealed interface CaptchaState {
+        data object Loading : CaptchaState
+        data class Ready(val bytes: ByteArray?) : CaptchaState
+        data class Failed(val message: String) : CaptchaState
+    }
+
+    private val _captcha = MutableStateFlow<CaptchaState>(CaptchaState.Loading)
+    val captcha: StateFlow<CaptchaState> = _captcha.asStateFlow()
+
+    /**
+     * 与当前验证码**同一个会话**的登录现场：csrf 与图片必须成对，换图就换会话。
+     * 只活在内存里，登录成功后由 [sessionCookie] 的持久化版本接手后台复用。
+     */
+    private var pendingSession: ZfJwSession? = null
+
     val hasSavedAccount: Boolean get() = credentialStore.read() != null
+
+    init {
+        // 进页面就备一张：用户随时可能直接开验证码登录
+        refreshCaptcha()
+    }
+
+    /**
+     * 拉一张新验证码（进入页面 / 点图片 / 登录失败后都走这里）。
+     *
+     * 换图必须换会话：csrftoken 与验证码图片都要跟当前 cookie 配对，
+     * 拿旧会话的 csrf 提交新图片必然失败。
+     */
+    fun refreshCaptcha() {
+        viewModelScope.launch {
+            val previous = pendingSession
+            pendingSession = null
+            previous?.shutdown()
+            _captcha.value = CaptchaState.Loading
+            val session = ZfJwSession.create()
+            try {
+                val page = session.prepareLogin()
+                pendingSession = session
+                _captcha.value = CaptchaState.Ready(page.captcha)
+            } catch (e: CancellationException) {
+                session.shutdown()
+                throw e
+            } catch (e: ZfJwSession.ZfException) {
+                session.shutdown()
+                _captcha.value = CaptchaState.Failed(e.message ?: "验证码加载失败")
+            } catch (e: Exception) {
+                session.shutdown()
+                _captcha.value = CaptchaState.Failed("验证码加载异常：${e.javaClass.simpleName}")
+            }
+        }
+    }
 
     val settings: StateFlow<DetectSettings> = prefs.detectSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DetectSettings())
@@ -355,7 +528,12 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
      * [onResult] 的 ok 表示「凭证有效、开关已打开」；首检本身的结果单独带语气
      * （凭证对了但首检失败时，开关确实是开的，语气该是警告而不是错误）。
      */
-    fun saveAndEnable(username: String, password: String, onResult: (NoticeFeedback) -> Unit) {
+    fun saveAndEnable(
+        username: String,
+        password: String,
+        captchaCode: String,
+        onResult: (NoticeFeedback) -> Unit,
+    ) {
         viewModelScope.launch {
             val user = username.trim()
             val saved = credentialStore.read()
@@ -364,10 +542,24 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
                 onResult(NoticeFeedback("请填入学号和密码", NoticeTone.Warning))
                 return@launch
             }
+            val needCaptcha = (_captcha.value as? CaptchaState.Ready)?.bytes != null
+            if (needCaptcha && captchaCode.isBlank()) {
+                onResult(NoticeFeedback("请填入验证码", NoticeTone.Warning))
+                return@launch
+            }
+            val session = pendingSession
+            if (needCaptcha && session == null) {
+                onResult(NoticeFeedback("验证码还没加载好，点图片刷新后再试", NoticeTone.Warning))
+                refreshCaptcha()
+                return@launch
+            }
             // 整链总超时兜底：单请求各有 connect/read 超时，但链路含多步重定向，
             // 最坏情况叠加起来仍可能长时间无结果。宁可明确报「超时」也不要一直转圈。
-            val result = withTimeoutOrNull(LOGIN_TOTAL_TIMEOUT_MS) { verifyAndEnable(user, pwd) }
+            val result = withTimeoutOrNull(LOGIN_TOTAL_TIMEOUT_MS) {
+                verifyAndEnable(user, pwd, captchaCode, session)
+            }
             if (result == null) {
+                refreshCaptcha()
                 onResult(
                     NoticeFeedback(
                         "登录超时（${LOGIN_TOTAL_TIMEOUT_MS / 1000} 秒无响应），请检查网络后重试",
@@ -380,38 +572,58 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
         }
     }
 
-    /** 登录校验 + 落库 + 首检；返回面向用户的反馈（含语气）。 */
-    private suspend fun verifyAndEnable(user: String, pwd: String): NoticeFeedback {
-        val session = JwHttpSession.create()
+/**
+ * 登录校验 + 落库（凭证 + 会话 cookie）+ 首检；返回面向用户的反馈（含语气）。
+ *
+ * 验证码一次性：**任何失败都顺手换一张新图**，用户不用自己想到去点刷新。
+ * 成功后把会话 cookie 存进加密 prefs，后台定时检测在有效期内直接复用它
+ * （本校准登录必须填验证码，后台自己登不了，见 JwDetectRunner.run 的说明）。
+ */
+    private suspend fun verifyAndEnable(
+        user: String,
+        pwd: String,
+        captchaCode: String,
+        session: ZfJwSession?,
+    ): NoticeFeedback {
+        if (session == null) return NoticeFeedback("验证码会话已失效，请重新获取验证码", NoticeTone.Warning)
         try {
-            session.login(user, pwd)
+            session.login(user, pwd, captchaCode)
         } catch (e: CancellationException) {
             // 总超时靠协程取消实现：CancellationException 必须原样抛出，
             // 被下面 catch (Exception) 吞掉的话超时会误报成「登录异常」。
             throw e
-        } catch (e: JwHttpSession.JwHttpException) {
+        } catch (e: ZfJwSession.ZfException.Credential) {
+            refreshCaptcha()
             return NoticeFeedback(e.message ?: "登录失败，请检查账号密码", NoticeTone.Error)
+        } catch (e: ZfJwSession.ZfException) {
+            refreshCaptcha()
+            return NoticeFeedback(e.message ?: "登录失败", NoticeTone.Error)
         } catch (e: Exception) {
             // 兜底：链路里任何未归类异常都不能把开关卡在转圈态
+            refreshCaptcha()
             return NoticeFeedback(
                 "登录异常：${e.javaClass.simpleName} ${e.message.orEmpty()}".trim(),
                 NoticeTone.Error,
             )
-        } finally {
-            // 成功 / 失败 / 取消三条路径都要释放连接池与线程池
-            session.shutdown()
         }
-        credentialStore.save(user, pwd)
+        // 登录成功：凭证 + 会话 cookie 一起落库
+        credentialStore.save(user, pwd, session.exportSession())
         prefs.setDetectEnabled(true)
         JwDetectScheduler.ensurePeriodicWork(appContext, prefs.detectSettings.first())
         // 首检失败（网络/协议）不回滚开关——凭证已验证通过，开关是有效状态；
         // 失败原因由 outcome 文案透出，状态区同时记录 lastError 供回看。
         val outcome = try {
-            JwDetectRunner(appContext).run(JwDetectRunner.Trigger.Manual)
+            // 刚登进来的会话直接给首检用，省一次登录（也避免后台那条「无会话」分支）
+            JwDetectRunner(appContext).run(JwDetectRunner.Trigger.Manual, liveSession = session)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             JwDetectRunner.Outcome.Failed("首次检测异常：${e.message.orEmpty()}")
+        } finally {
+            // 首检用完即释放连接池；下次检测走存下来的 cookie
+            session.shutdown()
+            pendingSession = null
+            refreshCaptcha()
         }
         return detectOutcomeNotice(outcome)
     }
@@ -435,7 +647,11 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
 
     fun checkNow(onDone: (JwDetectRunner.Outcome) -> Unit) {
         viewModelScope.launch {
-            onDone(JwDetectRunner(appContext).run(JwDetectRunner.Trigger.Manual))
+            val outcome = JwDetectRunner(appContext).run(JwDetectRunner.Trigger.Manual)
+            // 会话过期（本校准登录必须填验证码）：顺手换一张验证码，
+            // 用户填完点「重新验证」即可恢复后台检测
+            if (outcome is JwDetectRunner.Outcome.Skipped && "会话" in outcome.reason) refreshCaptcha()
+            onDone(outcome)
         }
     }
     companion object {

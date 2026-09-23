@@ -60,7 +60,12 @@ class JwDetectRunner(private val context: Context) {
         data class Failed(val message: String) : Outcome()
     }
 
-    suspend fun run(trigger: Trigger): Outcome {
+    /**
+     * @param liveSession 手动路径里已经用验证码登录好的会话（设置页「立即检测」传入）。
+     *   后台定时检测传 null：走加密存储里的会话 cookie，过期即跳过并提示手动验证一次
+     *   ——本校准登录必须填验证码，后台自己登不了（DESIGN §4.17）。
+     */
+    suspend fun run(trigger: Trigger, liveSession: ZfJwSession? = null): Outcome {
         val repo = Graph.repository(context)
         val prefs = Graph.displayPrefs(context)
         // 前置门。读取环节自身也可能失败（凭证 keyset 损坏时 EncryptedSharedPreferences 会抛），
@@ -87,15 +92,27 @@ class JwDetectRunner(private val context: Context) {
         }
 
         return try {
-            val session = JwHttpSession.create()
+            val session = liveSession ?: ZfJwSession.create()
+            val ownedSession = liveSession == null
             try {
-                session.login(credentials.username, credentials.password)
+                if (ownedSession && !session.importSession(credentials.sessionCookie)) {
+                    // 没有可用会话：不是错误，是「需要人去填一次验证码」
+                    return Outcome.Skipped("需要先在设置页用验证码验证一次（后台检测靠会话复用）")
+                }
 
-                // 无参理论页 = 教务当前学期口径；学期比对在这里做
-                val theoryHtml = session.fetchTheoryScheduleHtml()
-                val jwTerm = JwHttpSession.extractSelectedTerm(theoryHtml)
-                val theory = parseCourses(QiangzhiScheduleParser.parseFromHtml(theoryHtml))
-                    ?: return failProtocol(prefs, "理论课表解析失败，页面结构可能已变")
+                // 课表 JSON 抓取（正方把实验课也排在同一张表里，因此只有一份课表）
+                val schedule = try {
+                    session.fetchSchedule()
+                } catch (e: ZfJwSession.ZfException.Protocol) {
+                    // 接口回登录页/结构变化：按会话过期处理，清掉失效 cookie 并提示手动验证
+                    if (ownedSession) Graph.jwCredentialStore(context).clearSession()
+                    return Outcome.Skipped("教务会话已过期，请到本页点「立即检测」重新验证一次")
+                }
+                val jwTerm = schedule.term
+                val theory = schedule.courses
+                if (theory.isEmpty()) {
+                    return failProtocol(prefs, "教务课表为空：学期参数可能没对上，或这学期确实没课")
+                }
 
                 val ttId = repo.currentTimetableId.first()
                 val baseline = repo.detectBaseline(ttId)
@@ -107,11 +124,7 @@ class JwDetectRunner(private val context: Context) {
                     return Outcome.Skipped("教务已切换学期（$jwTerm）")
                 }
 
-                val labHtml = session.fetchLabScheduleHtml(jwTerm)
-                val lab = parseCourses(SyjxScheduleParser.parseFromHtml(labHtml))
-                    ?: return failProtocol(prefs, "实验课表解析失败，页面结构可能已变")
-
-                val snapshot = DetectSnapshotPayload.fromCourses(jwTerm, theory, lab)
+                val snapshot = DetectSnapshotPayload.fromCourses(jwTerm, theory, emptyList())
                 if (baseline == null) {
                     repo.saveDetectBaseline(ttId, snapshot)
                     prefs.recordDetectSuccess(System.currentTimeMillis())
@@ -139,7 +152,7 @@ class JwDetectRunner(private val context: Context) {
             } finally {
                 session.shutdown()
             }
-        } catch (e: JwHttpSession.JwHttpException.Credential) {
+        } catch (e: ZfJwSession.ZfException.Credential) {
             recordFailureSafely(prefs, e.message ?: "登录失败", credentialFailed = true)
             // 记录失败后重读停用标记：写失败时读也大概率失败，一律吞掉——
             // 通知发不出去也比异常逃逸把界面卡在转圈态强。
@@ -148,7 +161,7 @@ class JwDetectRunner(private val context: Context) {
                 JwDetectNotifier.notifyDisabled(context)
             }
             Outcome.Failed(e.message ?: "登录失败")
-        } catch (e: JwHttpSession.JwHttpException) {
+        } catch (e: ZfJwSession.ZfException) {
             recordFailureSafely(prefs, e.message ?: "检测失败", credentialFailed = false)
             Outcome.Failed(e.message ?: "检测失败")
         } catch (e: CancellationException) {
@@ -180,9 +193,6 @@ class JwDetectRunner(private val context: Context) {
             // 落库失败时无声：调用方仍需拿到 Failed 结果去复位 UI
         }
     }
-
-    private fun parseCourses(result: ImportParseResult): List<Course>? =
-        (result as? ImportParseResult.Success)?.courses
 
     private suspend fun failProtocol(
         prefs: DisplayPrefsStore,
