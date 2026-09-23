@@ -74,8 +74,6 @@ import edu.jxslu.schedule.domain.dayLabel
 import edu.jxslu.schedule.domain.metaLine
 import edu.jxslu.schedule.domain.sectionRange
 import edu.jxslu.schedule.domain.TimeSlot
-import edu.jxslu.schedule.domain.UnlockFlowState
-import edu.jxslu.schedule.domain.calculateActualCost
 import edu.jxslu.schedule.ui.common.AppNoticeVisuals
 import edu.jxslu.schedule.ui.common.AppSnackbarHost
 import edu.jxslu.schedule.ui.common.CourseDetailSheet
@@ -87,20 +85,13 @@ import edu.jxslu.schedule.ui.common.NoticeTone
 import edu.jxslu.schedule.ui.common.ShortcutIcon
 import edu.jxslu.schedule.ui.common.ShortcutLauncher
 import edu.jxslu.schedule.ui.common.ShortcutPinner
-import edu.jxslu.schedule.ui.common.WaterUnlockButton
 import edu.jxslu.schedule.ui.common.courseColor
 import edu.jxslu.schedule.ui.common.rememberAppHaptics
-import edu.jxslu.schedule.ui.common.rememberWaterRequireDoubleClick
-import edu.jxslu.schedule.ui.water.WaterEvent
-import edu.jxslu.schedule.ui.water.WaterViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Droplet
 import me.rerere.hugeicons.stroke.Edit02
 import me.rerere.hugeicons.stroke.Link01
-import me.rerere.hugeicons.stroke.CreditCard
-import me.rerere.hugeicons.stroke.ScooterElectric
 import edu.jxslu.schedule.domain.MONTH_DAY_FORMAT
 
 /**
@@ -117,11 +108,10 @@ import edu.jxslu.schedule.domain.MONTH_DAY_FORMAT
  * - 点课程（焦点卡/课程行）弹**只读详情**（[CourseDetailSheet]，与课表页同口径），
  *   编辑/删除是详情里的二级动作——直跳编辑器易误触。
  *
- * 底部固定区（DESIGN §3.3）：快捷方式三列图标网格（§3.8）在上、一键开水卡在最底，
+ * 底部固定区（DESIGN §3.3）：只有快捷方式三列图标网格（§3.8），
  * 用 [TodayBottomDock]**钉在滚动区下方**——此前它们是 LazyColumn 的最后两项，
  * 课少时悬在屏幕中段、课多时要滑到底才看得见，同一个「固定区」在空态（贴底）
  * 与有课态（跟滚）之间还是两种表现。三态共用同一个 dock，位置不随状态漂移。
- * 开水卡默认常显（未登录给未登录态，显示设置可关）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,37 +119,15 @@ fun TodayScreen(
     onOpenJwImport: () -> Unit = {},
     /** 「尚未开学」空态的 CTA：跳课表设置（学期起止） */
     onOpenTimetableSettings: () -> Unit = {},
-    onOpenWater: () -> Unit = {},
-    /** 共享单车出码页（DESIGN §3.9，SubpageActivity 独立窗口） */
-    onOpenEbike: () -> Unit = {},
-    /** 校园卡付款码页（DESIGN §3.10，SubpageActivity 独立窗口；开关关时无入口） */
-    onOpenPayCode: () -> Unit = {},
-    /** 校园卡消费流水页（DESIGN §4.19，今日页余额弹窗入口） */
-    onOpenStatement: () -> Unit = {},
     /** 快捷方式设置页（长按图标进；null=不定位，非 null=打开后直接编辑该条目，DESIGN §3.8） */
     onOpenShortcuts: (String?) -> Unit = {},
-    /** 与开水页共享的 Activity 作用域实例；开水卡的解锁进度与登录态两页一致 */
-    waterViewModel: WaterViewModel? = null,
     viewModel: TodayViewModel = viewModel(
         factory = TodayViewModel.Factory(Graph.repository(LocalContext.current)),
     ),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val shortcuts by viewModel.shortcuts.collectAsStateWithLifecycle()
-    val waterCardEnabled by viewModel.waterCardEnabled.collectAsStateWithLifecycle()
-    val ebikeCardEnabled by viewModel.ebikeCardEnabled.collectAsStateWithLifecycle()
-    val campusCardEnabled by viewModel.campusCardEnabled.collectAsStateWithLifecycle()
-    // 校园卡余额与充值/到账（DESIGN §3.10/§4.19）：与设置页共享同一 VM 类，
-    // 依赖全是 Graph 单例；init 内部自检开关，关时零网络动作
-    val campusViewModel: edu.jxslu.schedule.ui.campus.CampusCardViewModel = viewModel(
-        factory = edu.jxslu.schedule.ui.campus.CampusCardViewModel.Factory(
-            LocalContext.current.applicationContext,
-        ),
-    )
-    val campusBalance by campusViewModel.balance.collectAsStateWithLifecycle()
-    val campusArrival by campusViewModel.arrivalState.collectAsStateWithLifecycle()
-    var showCampusEntrySheet by remember { mutableStateOf(false) }
-    var showCampusRechargeSheet by remember { mutableStateOf(false) }
+
     var editing by remember { mutableStateOf<Course?>(null) }
     var editorOpen by remember { mutableStateOf(false) }
     var detailCourse by remember { mutableStateOf<Course?>(null) }
@@ -189,19 +157,6 @@ fun TodayScreen(
         }
     }
 
-    // 开水卡在今日页也能发起解锁，事件得有人收——此前只有开水页收，
-    // 今日页点「开水」后的超时/失效提示全部静默丢弃（Channel 无人消费即无处可去）。
-    // 今日页与开水二级页各持一份 WaterViewModel（两个 Activity，登录态/订单走仓库共享），
-    // 所以两边各收自己那份的事件，不会重复消费。
-    LaunchedEffect(waterViewModel) {
-        waterViewModel?.events?.collect { event ->
-            when (event) {
-                is WaterEvent.Notice -> snackbar.showSnackbar(
-                    AppNoticeVisuals(event.text, tone = event.tone),
-                )
-            }
-        }
-    }
 
     // 单条结果提示（钉桌面失败等）：与快捷方式拉起失败共用同一条 Snackbar 队列，
     // 后到的消息自动排队，不会互相顶掉
@@ -220,37 +175,13 @@ fun TodayScreen(
     }
 
     // 底部固定区（DESIGN §3.3）三态共用：同一份组合函数喂给加载中/空态/有课态，
-    // 「快捷方式在上、开水卡最底」的顺序与贴底位置只有一处定义
+    // 贴底位置只有一处定义
     val bottomDock: @Composable () -> Unit = {
         TodayBottomDock(
             shortcuts = shortcuts,
             onOpenShortcuts = onOpenShortcuts,
             onShortcutError = showShortcutError,
             onNotice = showNotice,
-            // 共享单车卡（DESIGN §3.9）：开关关 = 整卡不占位，与开水卡同口径
-            ebikeCard = if (ebikeCardEnabled) {
-                { EbikeQuickCard(onOpenEbike) }
-            } else {
-                null
-            },
-            // 校园卡付款码卡（DESIGN §3.10）：默认关；点击进付款码页（FLAG_SECURE）；
-            // 右侧余额可点 → 功能入口弹层（充值/流水/认证码，2026-09-21 追加）
-            campusCard = if (campusCardEnabled) {
-                {
-                    CampusCardQuickCard(
-                        onOpen = onOpenPayCode,
-                        balanceText = campusBalance?.let { "¥%.2f".format(it.totalFen / 100.0) },
-                        onBalanceClick = { showCampusEntrySheet = true },
-                    )
-                }
-            } else {
-                null
-            },
-            waterCard = if (waterCardEnabled && waterViewModel != null) {
-                { WaterCard(waterViewModel, onOpenWater) }
-            } else {
-                null
-            },
         )
     }
 
@@ -278,7 +209,6 @@ fun TodayScreen(
                         )
                     }
                 },
-                // 一键开水入口不挂顶栏：底部固定区已有开水卡，顶栏图标重复
             )
         },
         snackbarHost = { AppSnackbarHost(snackbar) },
@@ -360,90 +290,16 @@ fun TodayScreen(
         )
     }
 
-    // 校园卡：点余额的功能入口弹层 + 充值弹层 + 到账成功弹窗（DESIGN §3.10/§4.19）
-    if (showCampusEntrySheet) {
-        edu.jxslu.schedule.ui.campus.CampusEntrySheet(
-            balanceFen = campusBalance?.totalFen,
-            onDismiss = { showCampusEntrySheet = false },
-            onOpenRecharge = {
-                showCampusEntrySheet = false
-                showCampusRechargeSheet = true
-            },
-            onOpenStatement = {
-                showCampusEntrySheet = false
-                onOpenStatement()
-            },
-            onOpenPayCode = {
-                showCampusEntrySheet = false
-                onOpenPayCode()
-            },
-        )
-    }
-    if (showCampusRechargeSheet) {
-        val activityContext = LocalContext.current
-        edu.jxslu.schedule.ui.campus.RechargeSheet(
-            balanceFen = campusBalance?.totalFen,
-            onDismiss = { showCampusRechargeSheet = false },
-            onLaunch = { yuan ->
-                showCampusRechargeSheet = false
-                campusViewModel.recharge(
-                    yuan,
-                    // Activity context 直接启动（不设 NEW_TASK）：返回无缝、无顶栏跳动
-                    launchExternal = { intent ->
-                        runCatching {
-                            (activityContext as? android.app.Activity)?.startActivity(intent)
-                                ?: activityContext.startActivity(
-                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-                                )
-                            true
-                        }.getOrDefault(false)
-                    },
-                ) { notice ->
-                    scope.launch {
-                        snackbar.showSnackbar(edu.jxslu.schedule.ui.common.AppNoticeVisuals(notice.text, tone = notice.tone))
-                    }
-                }
-            },
-        )
-    }
-    val campusArrived = campusArrival as? edu.jxslu.schedule.ui.campus.CampusCardViewModel.ArrivalState.Arrived
-    if (campusArrived != null) {
-        edu.jxslu.schedule.ui.campus.CampusArrivalDialog(
-            arrived = campusArrived,
-            onDismiss = { campusViewModel.dismissArrival() },
-            onOpenPayCode = onOpenPayCode,
-        )
-    }
-    // 「正在确认到账」弹窗（微信返回且未立即到账时；关闭不影响轮询）
-    val campusPendingConfirm by campusViewModel.pendingConfirmVisible.collectAsStateWithLifecycle()
-    val campusWatching = campusArrival as? edu.jxslu.schedule.ui.campus.CampusCardViewModel.ArrivalState.Watching
-    if (campusPendingConfirm && campusWatching != null) {
-        edu.jxslu.schedule.ui.campus.CampusPendingConfirmDialog(
-            orderFen = campusWatching.orderFen,
-            onDismiss = { campusViewModel.dismissPendingConfirm() },
-        )
-    }
-    // 从微信返回的瞬间立即补检一轮（充值从今日页发起的场景）
-    val todayLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    androidx.compose.runtime.DisposableEffect(todayLifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                campusViewModel.onHostResume()
-            }
-        }
-        todayLifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { todayLifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+
 }
 
 /**
  * 底部固定区（DESIGN §3.3）：**钉在滚动区下方**，不随课表滚动。
  *
- * 结构：快捷方式三列图标网格（§3.8）在上，一键开水卡恒在最底。三态（加载中/空态/有课态）
- * 共用本组件，位置不随状态漂移；快捷方式开关关着或列表为空时整段不占位，
- * 开水卡关掉时同理（只剩一个空 Column，高度为 0）。
+ * 结构：快捷方式三列图标网格（§3.8）。三态（加载中/空态/有课态）共用本组件，
+ * 位置不随状态漂移；快捷方式开关关着或列表为空时整段不占位。
  *
- * **高度上限**：屏高 45%。8 条快捷方式（3 行）+ 开水卡在大字体小屏上足以吃掉半屏，
+ * **高度上限**：屏高 45%。8 条快捷方式（3 行）在大字体小屏上足以吃掉半屏，
  * 超过上限时 dock 内部可滚——保住课表的可视区，也保证每个入口都还能够到
  * （不设上限的话，超出的部分会被挤出屏幕且无法访问）。
  */
@@ -453,15 +309,9 @@ private fun TodayBottomDock(
     onOpenShortcuts: (String?) -> Unit,
     onShortcutError: (String, String?) -> Unit,
     onNotice: (String, NoticeTone) -> Unit = { _, _ -> },
-    /** 共享单车卡（DESIGN §3.9）；开水卡之上、快捷方式之下 */
-    ebikeCard: (@Composable () -> Unit)? = null,
-    /** 校园卡付款码卡（DESIGN §3.10）；骑行卡之下、开水卡之上 */
-    campusCard: (@Composable () -> Unit)? = null,
-    /** 开水卡（含未登录态，显示设置可关）；恒为 dock 最后一项 */
-    waterCard: (@Composable () -> Unit)? = null,
 ) {
     val hasShortcuts = shortcuts.enabled && shortcuts.items.isNotEmpty()
-    if (!hasShortcuts && ebikeCard == null && campusCard == null && waterCard == null) return
+    if (!hasShortcuts) return
 
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.45f).dp
     Column(
@@ -471,22 +321,7 @@ private fun TodayBottomDock(
             .verticalScroll(rememberScrollState())
             .padding(top = 12.dp, bottom = 16.dp),
     ) {
-        if (hasShortcuts) {
-            ShortcutQuickGrid(shortcuts.items, { onOpenShortcuts(null) }, onShortcutError, onNotice)
-        }
-        var hasAbove = hasShortcuts
-        if (ebikeCard != null) {
-            Box(Modifier.padding(top = if (hasAbove) 16.dp else 0.dp)) { ebikeCard() }
-            hasAbove = true
-        }
-        if (campusCard != null) {
-            Box(Modifier.padding(top = if (hasAbove) 16.dp else 0.dp)) { campusCard() }
-            hasAbove = true
-        }
-        if (waterCard != null) {
-            // 上方有区块时给一段呼吸距离；单独出现时不再顶一截空白
-            Box(Modifier.padding(top = if (hasAbove) 16.dp else 0.dp)) { waterCard() }
-        }
+        ShortcutQuickGrid(shortcuts.items, { onOpenShortcuts(null) }, onShortcutError, onNotice)
     }
 }
 
@@ -912,297 +747,6 @@ private fun TomorrowBlock(
 }
 
 // monthDayFmt 已收拢为 domain/TodayFormat.kt 的 MONTH_DAY_FORMAT（与调课页共用）
-
-/**
- * 底部固定区四张同款描边卡（共享单车/校园卡/开水未登录态/开水已登录）的最小高度：
- * = 两行文本（bodyMedium 20dp + bodySmall 16dp）+ 上下 padding 22dp。
- * 统一 min 后，开水卡在解锁流程中（副标题行收起、尾部换 TextButton）不再塌陷/增高，
- * 三张卡在 dock 里高度恒定；系统大字体时自然高度超过 min 也不受影响（min 只是下限）。
- */
-private val QuickCardMinHeight = 58.dp
-
-
-/**
- * 一键开水卡（DESIGN §3.3 底部固定区）：**默认常显**，按登录态分两形态——
- * 已登录 = 原一键开水交互（[WaterQuickEntry]，点「开水」直接走解锁流程，
- * 进度/结果原地显示；点卡片其余位置进开水页）；未登录 = 未登录态（[WaterLoggedOutCard]，
- * 点卡片跳开水页，登录表单就在该页）。
- */
-@Composable
-private fun WaterCard(vm: WaterViewModel, onOpen: () -> Unit) {
-    val state by vm.uiState.collectAsStateWithLifecycle()
-    if (state.loggedIn) {
-        WaterQuickEntry(vm, onOpen)
-    } else {
-        WaterLoggedOutCard(onOpen)
-    }
-}
-
-/**
- * 快趣出行码卡（DESIGN §3.9，2026-09-20 改名）：与开水卡同款 1dp 描边形态；点卡片进出码页。
- */
-@Composable
-private fun EbikeQuickCard(onOpen: () -> Unit) {
-    val primary = MaterialTheme.colorScheme.primary
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val shape = RoundedCornerShape(14.dp)
-    val haptics = rememberAppHaptics()
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .heightIn(min = QuickCardMinHeight)
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            .clickable(onClickLabel = "打开共享单车出码") {
-                haptics.tap()
-                onOpen()
-            }
-            .padding(horizontal = 13.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            HugeIcons.ScooterElectric,
-            contentDescription = null,
-            tint = primary,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = "快趣出行码",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "生成骑行二维码，微信扫一扫开车",
-                style = MaterialTheme.typography.bodySmall,
-                color = onSurface.copy(alpha = 0.55f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-/**
- * 水宝宝一卡通卡（DESIGN §3.10，2026-09-20 改名，原「校园卡付款码卡」）：
- * 与开水卡同款 1dp 描边形态；点卡片进付款码页；右侧卡内余额可点，
- * 弹出功能入口弹层（充值/消费流水/认证码，DESIGN §3.10 2026-09-21 追加）。
- * 开关（我的 → 扩展服务 → 水宝宝一卡通）默认关——涉及凭证与资金等价物，用户显式开启才上桌。
- */
-@Composable
-private fun CampusCardQuickCard(
-    onOpen: () -> Unit,
-    /** 卡内余额文案（如 "¥19.95"）；null = 开关关/未取到 → 不显示余额区 */
-    balanceText: String?,
-    onBalanceClick: () -> Unit,
-) {
-    val primary = MaterialTheme.colorScheme.primary
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val shape = RoundedCornerShape(14.dp)
-    val haptics = rememberAppHaptics()
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .heightIn(min = QuickCardMinHeight)
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            .clickable(onClickLabel = "打开校园卡付款码") {
-                haptics.tap()
-                onOpen()
-            }
-            .padding(horizontal = 13.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            HugeIcons.CreditCard,
-            contentDescription = null,
-            tint = primary,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = "水宝宝一卡通",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "点击出示 · 等同现金，请勿分享",
-                style = MaterialTheme.typography.bodySmall,
-                color = onSurface.copy(alpha = 0.55f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (balanceText != null) {
-            // 余额可点区：clickable 在父级 clickable 之内，点击只命中本区不冒泡触发卡片跳转
-            Text(
-                text = balanceText,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = primary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClickLabel = "一卡通功能") {
-                        haptics.tap()
-                        onBalanceClick()
-                    }
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-            )
-        }
-    }
-}
-
-/**
- * 未登录态开水卡：与已登录卡同款 1dp 描边形态，只交代「未登录 + 点这里去登录」，
- * 不显示设备/解锁按钮——登录表单在开水页（SubpageActivity.WATER），点卡片直达。
- */
-@Composable
-private fun WaterLoggedOutCard(onOpen: () -> Unit) {
-    val primary = MaterialTheme.colorScheme.primary
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val shape = RoundedCornerShape(14.dp)
-    val haptics = rememberAppHaptics()
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .heightIn(min = QuickCardMinHeight)
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            .clickable(onClickLabel = "去登录胖乖生活") {
-                haptics.tap()
-                onOpen()
-            }
-            .padding(horizontal = 13.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            HugeIcons.Droplet,
-            contentDescription = null,
-            tint = primary,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = "胖乖生活 · 未登录",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "点击去登录，登录后可一键开水、查余额与订单",
-                style = MaterialTheme.typography.bodySmall,
-                color = onSurface.copy(alpha = 0.55f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-/**
- * 已登录的一键开水卡：与开水页共享同一 ViewModel，点「开水」直接走解锁流程，
- * 进度/结果原地显示；点卡片其余位置进开水页（选设备、看订单详情）。
- * 开水按钮支持单击/双击（全局偏好，默认双击）；进行中禁点防重复解锁（VM 内另有 Mutex 兜底）。
- *
- * 样式用 1dp 描边而不是主色底：焦点卡已是主色底，两个同款色块一个是信息一个是动作，
- * 分不清哪个能点。
- */
-@Composable
-private fun WaterQuickEntry(vm: WaterViewModel, onOpen: () -> Unit) {
-    val state by vm.uiState.collectAsStateWithLifecycle()
-    val flow = state.flow
-    val primary = MaterialTheme.colorScheme.primary
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val shape = RoundedCornerShape(14.dp)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .heightIn(min = QuickCardMinHeight)
-            .clip(shape)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            .clickable(enabled = flow is UnlockFlowState.Idle) { onOpen() }
-            .padding(horizontal = 13.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            HugeIcons.Droplet,
-            contentDescription = null,
-            tint = primary,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = when (flow) {
-                    is UnlockFlowState.Idle -> "胖乖生活 · " +
-                        (state.selectedDevice?.goodsName?.ifBlank { "未命名设备" } ?: "未选择设备")
-                    is UnlockFlowState.PreChecking -> flow.step
-                    is UnlockFlowState.Working -> "正在出水 ${waterClock(flow.elapsedSeconds)}"
-                    is UnlockFlowState.Success -> "开水成功 · 花费 ¥${calculateActualCost(flow.result)}"
-                    is UnlockFlowState.Failed -> "开水失败 · ${flow.message}"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (flow is UnlockFlowState.Idle) {
-                Text(
-                    text = if (rememberWaterRequireDoubleClick()) {
-                        "双击「开水」出水防误触，点卡片管理设备与订单"
-                    } else {
-                        "点「开水」立即出水，点卡片管理设备与订单"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = onSurface.copy(alpha = 0.55f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        when (flow) {
-            is UnlockFlowState.Idle -> WaterUnlockButton(
-                enabled = state.selectedDevice != null,
-                onUnlock = { vm.unlock() },
-            )
-            is UnlockFlowState.PreChecking, is UnlockFlowState.Working ->
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            is UnlockFlowState.Success ->
-                // Box 钳 36dp：M3 最小触达（48dp）会把 TextButton 布局撑高，
-                // 卡片在流程态反而比 Idle 态还高；与 WaterUnlockButton 同口径压平
-                Box(Modifier.height(36.dp), contentAlignment = Alignment.Center) {
-                    TextButton(onClick = { vm.dismissFlow() }) { Text("完成") }
-                }
-            is UnlockFlowState.Failed ->
-                Box(Modifier.height(36.dp), contentAlignment = Alignment.Center) {
-                    TextButton(onClick = { vm.unlock() }) { Text("重试") }
-                }
-        }
-    }
-}
-
-private fun waterClock(totalSeconds: Int): String {
-    val m = totalSeconds / 60
-    val s = totalSeconds % 60
-    return "%02d:%02d".format(m, s)
-}
 
 /**
  * 快捷方式三列图标网格（DESIGN §3.8，2026-09-19 自横滑 chips 改，用户拍板）：

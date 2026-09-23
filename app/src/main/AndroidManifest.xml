@@ -16,11 +16,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 重启后闹钟全部丢失：开机广播补排下一个提醒 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- 共享单车出码自动保存（DESIGN §3.9）：API 29+ 走 MediaStore 免权限；
-         仅 26–28 的 legacy 公共目录直写需要，且 maxSdkVersion 限定，29 起失效 -->
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
 
     <!-- 今日页快捷方式（DESIGN §4.16）：API 30+ 包可见性声明。
          三个 package 让预设包可见（getLaunchIntentForPackage 不再对已安装的 App
@@ -31,9 +26,7 @@
         <package android:name="com.xunmeng.pinduoduo" />
         <package android:name="com.taobao.taobao" />
         <package android:name="com.cainiao.wireless" />
-        <!-- 共享单车页（DESIGN §3.9）：「打开微信扫一扫」按钮 best-effort 拉起微信，
-             需包可见性做 resolve 探测（不可见时按钮直接给手动扫码引导） -->
-        <package android:name="com.tencent.mm" />
+
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="pinduoduo" />
@@ -73,7 +66,7 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize" />
-        <!-- 设置类二级页统一独立窗口（课表管理/课表设置/数据/开水等，不含显示设置——
+        <!-- 设置类二级页统一独立窗口（课表管理/课表设置/数据/成绩等，不含显示设置——
              它是课表页内覆盖面板，见 DESIGN §3.1），底栏不可达，避免子页与 tab 栈混用 -->
         <activity
             android:name=".SubpageActivity"

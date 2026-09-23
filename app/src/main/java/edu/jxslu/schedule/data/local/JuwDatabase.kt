@@ -18,7 +18,6 @@ import edu.jxslu.schedule.domain.TimetablePrefs
         ScoreEntity::class,
         DetectBaselineEntity::class,
         DetectReportEntity::class,
-        YktTurnoverEntity::class,
     ],
     version = 6,
     exportSchema = false,
@@ -32,7 +31,6 @@ abstract class JuwDatabase : RoomDatabase() {
     abstract fun scoreDao(): ScoreDao
     abstract fun detectBaselineDao(): DetectBaselineDao
     abstract fun detectReportDao(): DetectReportDao
-    abstract fun yktTurnoverDao(): YktTurnoverDao
 
     companion object {
 
@@ -175,9 +173,9 @@ abstract class JuwDatabase : RoomDatabase() {
         }
 
         /**
-         * v5 → v6：校园卡消费流水本地副本（DESIGN §4.19 L1–L5）。
-         * 新表 `ykt_turnovers`，orderId 主键（服务端订单号，同步去重键）；
-         * CREATE TABLE 非 destructive。个人消费记录非凭证，随云备份。
+         * v5 → v6：校园卡消费流水本地副本（校园卡功能 2026-09-23 已移除）。
+         * 表 `ykt_turnovers` 保留在迁移里、不再有对应实体：既有安装的库里这张表继续存在
+         * （空表，无人读写），免得为了删表再叠一层迁移去动用户已落库的数据。
          */
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {

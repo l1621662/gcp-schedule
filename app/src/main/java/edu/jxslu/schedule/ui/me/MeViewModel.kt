@@ -298,10 +298,6 @@ class MeViewModel(private val repo: ScheduleRepository) : ViewModel() {
         viewModelScope.launch { repo.setDynamicColor(value) }
     }
 
-    /** 开水双击确认（全局；默认双击防误触）。 */
-    fun setWaterRequireDoubleClick(value: Boolean) {
-        viewModelScope.launch { repo.setWaterRequireDoubleClick(value) }
-    }
 
     // ---- 显示设置子页写入口（2026-09-19 起全部写全局，见 DESIGN §4.9 / §3.3） ----
 
@@ -313,11 +309,6 @@ class MeViewModel(private val repo: ScheduleRepository) : ViewModel() {
 
     fun setTapBlankToAdd(value: Boolean) = viewModelScope.launch { repo.setTapBlankToAdd(value) }
 
-    /** 今日页开水卡片开关（DESIGN §3.3 底部固定区）。 */
-    fun setWaterCardEnabled(value: Boolean) = viewModelScope.launch { repo.setWaterCardEnabled(value) }
-
-    /** 今日页共享单车卡开关（DESIGN §3.9）。 */
-    fun setEbikeCardEnabled(value: Boolean) = viewModelScope.launch { repo.setEbikeCardEnabled(value) }
 
     /** 兼容入口：老调用点一次改两天。 */
     fun setShowWeekend(value: Boolean) = viewModelScope.launch { repo.setShowWeekend(value) }

@@ -47,9 +47,7 @@ import me.rerere.hugeicons.stroke.BellRing
 import me.rerere.hugeicons.stroke.CalendarSync
 import me.rerere.hugeicons.stroke.ColorPicker
 import me.rerere.hugeicons.stroke.Clock01
-import me.rerere.hugeicons.stroke.CreditCard
 import me.rerere.hugeicons.stroke.Database
-import me.rerere.hugeicons.stroke.Droplet
 import me.rerere.hugeicons.stroke.Flash
 import me.rerere.hugeicons.stroke.GraduationScroll
 import me.rerere.hugeicons.stroke.Github
@@ -59,7 +57,6 @@ import me.rerere.hugeicons.stroke.InformationCircle
 import me.rerere.hugeicons.stroke.Layout2Row
 import me.rerere.hugeicons.stroke.Palette
 import me.rerere.hugeicons.stroke.Radar01
-import me.rerere.hugeicons.stroke.ScooterElectric
 import me.rerere.hugeicons.stroke.Vibrate
 
 /** 公开仓库地址（MIT）；「开源仓库」点击后经系统浏览器打开。 */
@@ -87,7 +84,6 @@ private fun openUrl(context: Context, url: String): String? = try {
  * 「扩展服务」卡保留第三方免责副标题）；入口行只说「这是什么」，子页内部功能
  * 不罗列；二/三选一用整行分段按钮，不放标题行尾部（三段选项在窄屏必然溢出）。
  * 显示设置入口 2026-09-20 起移除：唯一入口 = 课表页顶栏眼睛图标（DESIGN §3.1）。
- * 开水设置子页同日并入开水页，胖乖只留「胖乖生活一键开水」一条入口（DESIGN §3.4）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,13 +98,10 @@ fun SettingsScreen(
     onOpenCalendarSettings: () -> Unit = {},
     onOpenReminderSettings: () -> Unit = {},
     onOpenShortcuts: () -> Unit = {},
-    onOpenWater: () -> Unit = {},
+
     /** 我的 → 调课自动检测设置（DESIGN §4.17） */
     onOpenTweakDetect: () -> Unit = {},
-    /** 我的 → 水宝宝一卡通（原「校园卡付款码」，DESIGN §3.10） */
-    onOpenCampusCard: () -> Unit = {},
-    /** 胖乖登录态（由外层传入，仅决定开水行文案）；登录/退出在开水页内完成 */
-    waterLoggedIn: Boolean = false,
+
     viewModel: MeViewModel = viewModel(
         factory = MeViewModel.Factory(Graph.repository(LocalContext.current)),
     ),
@@ -255,40 +248,13 @@ fun SettingsScreen(
                 )
             }
 
-            // ---- 扩展服务（第三方 · 非学校官方 + 今日页快捷入口）----
-            // 2026-09-20：快捷方式与快趣出行码自「通用」挪入；「开水设置」子页并入
-            // 开水页后，胖乖只留一条入口「胖乖生活一键开水」
-            SettingsSection(
-                title = "扩展服务",
-                subtitle = "第三方服务 · 非学校官方功能",
-            ) {
-                // 今日页快捷方式（DESIGN §3.8）：开关在子页内，默认开
+            // ---- 今日页（展示型入口，DESIGN §3.8） ----
+            SettingsSection(title = "今日页") {
                 SettingItem(
                     title = "快捷方式",
                     subtitle = "今日页快捷入口 · 添加与编辑",
                     icon = HugeIcons.Flash,
                     onClick = onOpenShortcuts,
-                )
-                // 今日页快趣出行码卡（DESIGN §3.9）：默认开；自动保存等选项在出码页内
-                SettingSwitchRow(
-                    title = "快趣出行码",
-                    subtitle = "今日页骑行二维码入口 · 非学校官方功能",
-                    checked = state.displayPrefs.ebikeCardEnabled,
-                    onCheckedChange = viewModel::setEbikeCardEnabled,
-                    icon = HugeIcons.ScooterElectric,
-                )
-                // 校园卡付款码（DESIGN §3.10）：开关与凭证在子页，默认关闭
-                SettingItem(
-                    title = "水宝宝一卡通",
-                    subtitle = "攻破水宝宝，一键启动！",
-                    icon = HugeIcons.CreditCard,
-                    onClick = onOpenCampusCard,
-                )
-                SettingItem(
-                    title = "胖乖生活一键开水",
-                    subtitle = if (waterLoggedIn) "开水 / 余额 / 订单" else "点击登录胖乖生活",
-                    icon = HugeIcons.Droplet,
-                    onClick = onOpenWater,
                 )
             }
 

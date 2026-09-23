@@ -39,7 +39,6 @@ import edu.jxslu.schedule.ui.common.rememberAppHaptics
 import edu.jxslu.schedule.ui.me.SettingsScreen
 import edu.jxslu.schedule.ui.theme.JuwTheme
 import edu.jxslu.schedule.ui.today.TodayScreen
-import edu.jxslu.schedule.ui.water.WaterViewModel
 import edu.jxslu.schedule.ui.week.WeekScreen
 import edu.jxslu.schedule.domain.ThemeMode
 import me.rerere.hugeicons.stroke.Book01
@@ -154,18 +153,6 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
-    // 胖乖登录态没有 Flow：key 到 currentRoute，从开水页返回（或切 Tab）时重读 token。
-    // 根因：无 key 的 remember 在登录成功返回后仍是旧值，入口卡片一直显示「未登录」。
-    // 二级页改为独立窗口后，返回主窗口触发重组，这里随 currentRoute 重算。
-    val waterLoggedIn = remember(currentRoute) { Graph.qiekj(context).localToken() != null }
-
-    // 胖乖 ViewModel 挂 Activity 作用域：今日页快捷入口与开水页（独立窗口）各自持有，
-    // 这里这份供今日页直接触发 unlock 时使用
-    val waterViewModel: WaterViewModel = viewModel(
-        viewModelStoreOwner = context as ComponentActivity,
-        factory = WaterViewModel.Factory(Graph.qiekj(context)),
-    )
-
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -213,22 +200,11 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     // 「尚未开学」空态 CTA：跳课表设置子页（独立窗口）
                     onOpenTimetableSettings = {
                         SubpageActivity.start(context, SubpageScreen.TIMETABLE_SETTINGS)
-                    },
-                    // 一键开水卡常显（未登录给未登录态，显示设置可关，DESIGN §3.3）；
-                    // 登录态由 WaterViewModel 自带，外层不再按登录与否隐藏整卡
-                    onOpenWater = { SubpageActivity.start(context, SubpageScreen.WATER) },
-                    // 共享单车出码页（DESIGN §3.9）：今日页卡片直达，独立窗口
-                    onOpenEbike = { SubpageActivity.start(context, SubpageScreen.EBIKE) },
-                    // 校园卡付款码页（DESIGN §3.10）：开关开时今日页卡片直达
-                    onOpenPayCode = { SubpageActivity.start(context, SubpageScreen.PAY_CODE) },
-                    // 校园卡消费流水页（DESIGN §4.19）：今日页余额弹窗入口
-                    onOpenStatement = { SubpageActivity.start(context, SubpageScreen.CAMPUS_STATEMENT) },
-                    // 快捷方式网格：长按图标进设置页（null）；Snackbar「去设置」带失败条目
+                    },                    // 快捷方式网格：长按图标进设置页（null）；Snackbar「去设置」带失败条目
                     // id 直达该条目的编辑弹层（DESIGN §3.8 的就地修正闭环）
                     onOpenShortcuts = { focusItemId ->
                         SubpageActivity.start(context, SubpageScreen.SHORTCUTS, focusItemId)
                     },
-                    waterViewModel = waterViewModel,
                 )
             }
             composable(Routes.WEEK) {
@@ -270,11 +246,7 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     },
                     onOpenTweakDetect = {
                         SubpageActivity.start(context, SubpageScreen.TWEAK_DETECT)
-                    },
-                    onOpenCampusCard = {
-                        SubpageActivity.start(context, SubpageScreen.CAMPUS_CARD_SETTINGS)
-                    },
-                    onOpenWidgetSettings = {
+                    },                    onOpenWidgetSettings = {
                         SubpageActivity.start(context, SubpageScreen.WIDGET_SETTINGS)
                     },
                     onOpenCalendarSettings = {
@@ -285,12 +257,7 @@ fun JuwApp(pendingRoute: MutableState<String?>? = null) {
                     },
                     onOpenShortcuts = {
                         SubpageActivity.start(context, SubpageScreen.SHORTCUTS)
-                    },
-                    onOpenWater = {
-                        SubpageActivity.start(context, SubpageScreen.WATER)
-                    },
-                    waterLoggedIn = waterLoggedIn,
-                )
+                    },                )
             }
         }
     }

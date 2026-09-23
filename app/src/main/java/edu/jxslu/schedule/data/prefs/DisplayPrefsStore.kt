@@ -14,7 +14,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import edu.jxslu.schedule.domain.CalendarSyncDefaults
 import edu.jxslu.schedule.domain.CourseFilter
 import edu.jxslu.schedule.domain.DetectFailurePolicy
-import edu.jxslu.schedule.domain.EbikeQr
 import edu.jxslu.schedule.domain.ReminderDefaults
 import edu.jxslu.schedule.domain.ScoreSortMode
 import edu.jxslu.schedule.domain.ShortcutItem
@@ -45,11 +44,6 @@ data class DisplayPrefs(
      * 默认开：点击类操作给轻触感是系统应用的普遍预期，嫌吵的人再关。
      */
     val hapticsEnabled: Boolean = true,
-    /**
-     * 开水按钮需双击确认。全局项，默认开：一键出水误触代价高，
-     * 双击挡单击误触；嫌麻烦可在「我的 → 胖乖生活」改回单击。
-     */
-    val waterRequireDoubleClick: Boolean = true,
     /**
      * 【遗留】周末显示单开关。语义 = [showSaturday] && [showSunday]，由 setter 保持同步。
      *
@@ -106,29 +100,7 @@ data class DisplayPrefs(
     val showAtSign: Boolean = true,
     /** 点击课表空白格是否新建课程。默认关：横滑切周易误触，加课走导入弹层/课程编辑。 */
     val tapBlankToAdd: Boolean = false,
-    /** 今日页开水卡片显示开关（DESIGN §3.3 底部固定区）。默认开；关 = 不展示（含未登录态）。 */
-    val waterCardEnabled: Boolean = true,
-    /** 今日页共享单车卡显示开关（DESIGN §3.9）。默认开（用户要求入口常驻）。 */
-    val ebikeCardEnabled: Boolean = true,
-    /**
-     * 共享单车二维码生成后自动存相册（DESIGN §3.9）。**默认关**（用户拍板）——
-     * 相册里只留用户真的要的码，开了才会每次生成即落盘。
-     */
-    val ebikeAutoSave: Boolean = false,
-    /**
-     * 扫完即焚（DESIGN §3.9）：保存过的码在用户回到 App 后自动从相册删除。
-     * **默认开**——保存码本就是"扫码"的一次性耗材，不留痕是预期行为；
-     * 关掉 = 完全回到旧语义（已记录的待删项保留不动，不再新增、也不删除）。
-     */
-    val ebikeBurnAfterScan: Boolean = true,
-    /** 最近生成的共享单车车号（尾部 3 位，倒序去重，上限见 [EbikeQr.RECENT_LIMIT]）。 */
-    val ebikeRecentIds: List<String> = emptyList(),
-    /**
-     * 今日页校园卡付款码卡开关（DESIGN §3.10）。**默认关**：涉及凭证与资金等价物，
-     * 用户显式开启；关 = 整卡不占位（即「不在今日页显示」）。凭证本身不在这里——
-     * 存 `ykt_credentials.xml`（EncryptedSharedPreferences），有没有凭证读 store 即知。
-     */
-    val campusCardEnabled: Boolean = false,
+
 )
 
 /**
@@ -225,10 +197,6 @@ class DisplayPrefsStore(private val context: Context) {
         p[KEY_DYNAMIC_COLOR] ?: true
     }
 
-    /** 开水双击确认。全局项，默认双击防误触。 */
-    val waterRequireDoubleClick: Flow<Boolean> = context.displayDataStore.data.map { p ->
-        p[KEY_WATER_REQUIRE_DOUBLE_CLICK] ?: true
-    }
 
     /** 上课提醒开关（DESIGN §3.7）。全局项，默认关：通知是打扰型能力，用户显式开启。 */
     val reminderEnabled: Flow<Boolean> = context.displayDataStore.data.map { p ->
@@ -255,71 +223,6 @@ class DisplayPrefsStore(private val context: Context) {
         p[KEY_SHORTCUTS_ENABLED] ?: true
     }.distinctUntilChanged()
 
-    /**
-     * 今日页开水卡片开关（DESIGN §3.3 底部固定区）。全局项，默认开：
-     * 卡片含未登录态（登录引导入口），关掉 = 用户明确不要这个常驻位。
-     */
-    val waterCardEnabled: Flow<Boolean> = context.displayDataStore.data.map { p ->
-        p[KEY_WATER_CARD_ENABLED] ?: true
-    }.distinctUntilChanged()
-
-    /** 今日页共享单车卡开关（DESIGN §3.9）。全局项，默认开。 */
-    val ebikeCardEnabled: Flow<Boolean> = context.displayDataStore.data.map { p ->
-        p[KEY_EBIKE_CARD_ENABLED] ?: true
-    }.distinctUntilChanged()
-
-    /** 共享单车出码后自动存相册（DESIGN §3.9）。全局项，默认关（用户拍板）。 */
-    val ebikeAutoSave: Flow<Boolean> = context.displayDataStore.data.map { p ->
-        p[KEY_EBIKE_AUTO_SAVE] ?: false
-    }.distinctUntilChanged()
-
-    /** 扫完即焚开关（DESIGN §3.9）。全局项，默认开。 */
-    val ebikeBurnAfterScan: Flow<Boolean> = context.displayDataStore.data.map { p ->
-        p[KEY_EBIKE_BURN_AFTER_SCAN] ?: true
-    }.distinctUntilChanged()
-
-    /** 扫完即焚的待删记录（本功能保存的二维码 key 集合，DESIGN §3.9）。 */
-    val ebikePendingDelete: Flow<Set<String>> = context.displayDataStore.data.map { p ->
-        p[KEY_EBIKE_PENDING_DELETE] ?: emptySet()
-    }
-
-    /**
-     * 最近共享单车车号（DESIGN §3.9）。键缺失/脏 JSON 回空列表——
-     * 历史只是回填入口，坏了不该打扰任何下游。
-     */
-    val ebikeRecentIds: Flow<List<String>> = context.displayDataStore.data.map { p ->
-        EbikeQr.decodeRecent(p[KEY_EBIKE_RECENT_IDS])
-    }.distinctUntilChanged()
-
-    /** 今日页校园卡付款码卡开关（DESIGN §3.10）。全局项，**默认关**（涉及凭证与资金）。 */
-    val campusCardEnabled: Flow<Boolean> = context.displayDataStore.data.map { p ->
-        p[KEY_CAMPUS_CARD_ENABLED] ?: false
-    }.distinctUntilChanged()
-
-    /**
-     * 未确认充值（DESIGN §4.19「充值」）：下单成功的金额（分）+ 下单时刻（epoch 毫秒）。
-     * **持久化**——到账检测轮询在内存，微信支付期间进程可能被系统回收（MIUI 激进省电），
-     * 重启后凭此恢复等待态并立即补检；到账/超时/取消时清除。金额本身非敏感数据。
-     */
-    val pendingRecharge: Flow<Pair<Long, Long>?> = context.displayDataStore.data.map { p ->
-        val fen = p[KEY_PENDING_RECHARGE_FEN]
-        val at = p[KEY_PENDING_RECHARGE_AT]
-        if (fen != null && at != null) fen to at else null
-    }.distinctUntilChanged()
-
-    suspend fun setPendingRecharge(fen: Long, at: Long) {
-        context.displayDataStore.edit {
-            it[KEY_PENDING_RECHARGE_FEN] = fen
-            it[KEY_PENDING_RECHARGE_AT] = at
-        }
-    }
-
-    suspend fun clearPendingRecharge() {
-        context.displayDataStore.edit {
-            it.remove(KEY_PENDING_RECHARGE_FEN)
-            it.remove(KEY_PENDING_RECHARGE_AT)
-        }
-    }
 
     /**
      * 快捷方式条目列表。键缺失或脏 JSON 回退内置预设（口径见 [Shortcuts.decode]）；
@@ -377,9 +280,6 @@ class DisplayPrefsStore(private val context: Context) {
         context.displayDataStore.edit { it[KEY_DYNAMIC_COLOR] = value }
     }
 
-    suspend fun setWaterRequireDoubleClick(value: Boolean) {
-        context.displayDataStore.edit { it[KEY_WATER_REQUIRE_DOUBLE_CLICK] = value }
-    }
 
     /** 保存日历提醒分钟数（0 = 不提醒）；夹取到 0–120。 */
     suspend fun setCalendarReminderMinutes(value: Int) {
@@ -402,56 +302,6 @@ class DisplayPrefsStore(private val context: Context) {
         context.displayDataStore.edit { it[KEY_SHORTCUTS_ENABLED] = value }
     }
 
-    /** 今日页开水卡片开关（DESIGN §3.3）。 */
-    suspend fun setWaterCardEnabled(value: Boolean) {
-        context.displayDataStore.edit { it[KEY_WATER_CARD_ENABLED] = value }
-    }
-
-    /** 今日页共享单车卡开关（DESIGN §3.9）。 */
-    suspend fun setEbikeCardEnabled(value: Boolean) {
-        context.displayDataStore.edit { it[KEY_EBIKE_CARD_ENABLED] = value }
-    }
-
-    /** 今日页校园卡付款码卡开关（DESIGN §3.10）。 */
-    suspend fun setCampusCardEnabled(value: Boolean) {
-        context.displayDataStore.edit { it[KEY_CAMPUS_CARD_ENABLED] = value }
-    }
-
-    /** 共享单车出码自动存相册开关（DESIGN §3.9）。 */
-    suspend fun setEbikeAutoSave(value: Boolean) {
-        context.displayDataStore.edit { it[KEY_EBIKE_AUTO_SAVE] = value }
-    }
-
-    /** 扫完即焚开关（DESIGN §3.9）。 */
-    suspend fun setEbikeBurnAfterScan(value: Boolean) {
-        context.displayDataStore.edit { it[KEY_EBIKE_BURN_AFTER_SCAN] = value }
-    }
-
-    /**
-     * 待焚毁记录统一写入口（DESIGN §3.9）：读-改-写整个集合，同值跳写。
-     * 记录是"承诺焚毁"的凭据，写失败最多留一张孤儿图，不影响出码本身。
-     */
-    suspend fun updateEbikePendingDelete(transform: (Set<String>) -> Set<String>) {
-        context.displayDataStore.edit { p ->
-            val current = p[KEY_EBIKE_PENDING_DELETE] ?: emptySet()
-            val next = transform(current)
-            if (next != current) {
-                if (next.isEmpty()) p.remove(KEY_EBIKE_PENDING_DELETE) else p[KEY_EBIKE_PENDING_DELETE] = next
-            }
-        }
-    }
-
-    /**
-     * 最近共享单车车号统一写入口（DESIGN §3.9）：读-改-写整个 JSON，同值跳写
-     * （口径同 [updateShortcuts]）。历史是锦上添花的回填数据，写失败不影响出码本身。
-     */
-    suspend fun updateEbikeRecentIds(transform: (List<String>) -> List<String>) {
-        context.displayDataStore.edit { p ->
-            val current = EbikeQr.decodeRecent(p[KEY_EBIKE_RECENT_IDS])
-            val next = transform(current)
-            if (next != current) p[KEY_EBIKE_RECENT_IDS] = EbikeQr.encodeRecent(next)
-        }
-    }
 
     /** 成绩页统计口径开关（DESIGN §4.15）。 */
     suspend fun setScoreIncludeFreeElectives(value: Boolean) {
@@ -649,7 +499,6 @@ class DisplayPrefsStore(private val context: Context) {
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         val KEY_HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color_enabled")
-        val KEY_WATER_REQUIRE_DOUBLE_CLICK = booleanPreferencesKey("water_require_double_click")
         val KEY_CALENDAR_REMINDER_MINUTES = intPreferencesKey("calendar_reminder_minutes")
         val KEY_REMINDER_ENABLED = booleanPreferencesKey("reminder_enabled")
         val KEY_REMINDER_LEAD = intPreferencesKey("reminder_lead_minutes")
@@ -660,15 +509,7 @@ class DisplayPrefsStore(private val context: Context) {
         val KEY_PREFS_MIGRATED = booleanPreferencesKey("timetable_prefs_migrated")
         val KEY_WIDGET_SETUP_SEEN = booleanPreferencesKey("widget_setup_seen")
         val KEY_SHORTCUTS_ENABLED = booleanPreferencesKey("shortcuts_enabled")
-        val KEY_WATER_CARD_ENABLED = booleanPreferencesKey("water_card_enabled")
-        val KEY_EBIKE_CARD_ENABLED = booleanPreferencesKey("ebike_card_enabled")
-        val KEY_EBIKE_AUTO_SAVE = booleanPreferencesKey("ebike_auto_save")
-        val KEY_EBIKE_BURN_AFTER_SCAN = booleanPreferencesKey("ebike_burn_after_scan")
-        val KEY_EBIKE_PENDING_DELETE = stringSetPreferencesKey("ebike_pending_delete")
-        val KEY_EBIKE_RECENT_IDS = stringPreferencesKey("ebike_recent_ids")
-        val KEY_CAMPUS_CARD_ENABLED = booleanPreferencesKey("campus_card_enabled")
-        val KEY_PENDING_RECHARGE_FEN = longPreferencesKey("pending_recharge_fen")
-        val KEY_PENDING_RECHARGE_AT = longPreferencesKey("pending_recharge_at")
+
         val KEY_SHORTCUTS_JSON = stringPreferencesKey("shortcuts_json")
         val KEY_SCORE_INCLUDE_FREE_ELECTIVES = booleanPreferencesKey("score_include_free_electives")
         val KEY_SCORE_GROUP_BY_YEAR = booleanPreferencesKey("score_group_by_year")

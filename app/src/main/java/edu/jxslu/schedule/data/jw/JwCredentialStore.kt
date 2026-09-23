@@ -8,7 +8,7 @@ import androidx.security.crypto.MasterKey
  * 教务登录凭证加密存储（DESIGN §4.17）。
  *
  * 调课自动检测（默认关闭）开启时才写入：用户显式录入学号 + 密码，仅用于本机向教务登录。
- * 方案与 [edu.jxslu.schedule.data.qiekj.QiekjTokenStore] 同款（EncryptedSharedPreferences，
+ * 与第三方服务凭证同款（EncryptedSharedPreferences，
  * 密钥在 Android Keystore），且 `backup_rules` / `data_extraction_rules` 把本文件
  * 排除出云备份与设备迁移——凭证不随备份体系走。
  */

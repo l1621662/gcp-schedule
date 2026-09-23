@@ -227,15 +227,6 @@ class ScheduleRepository(
         val theme: ThemeMode,
         val dynamicColor: Boolean,
         val haptics: Boolean,
-        val waterDouble: Boolean,
-        val waterCard: Boolean,
-    )
-
-    /** 共享单车相关偏好的收拢切片（DESIGN §3.9；combine 参数上限的同款处理）。 */
-    private data class EbikePrefs(
-        val cardEnabled: Boolean,
-        val autoSave: Boolean,
-        val recentIds: List<String>,
     )
 
     // ------------------------------------------------------------------
@@ -277,42 +268,24 @@ class ScheduleRepository(
     }
 
     /**
-     * 显示偏好 = 全局项（主题、动态取色、触感、开水双击）+ 全局视图偏好（DESIGN §4.9）。
+     * 显示偏好 = 全局项（主题、动态取色、触感）+ 全局视图偏好（DESIGN §4.9）。
      * 2026-09-19 起全部字段全局，不再依赖当前课表——换课表不换观感。
      * 对 UI 仍暴露合并后的 [DisplayPrefs]，调用点签名与分层时期一致。
      */
     val displayPrefs: Flow<DisplayPrefs> = combine(
-        // 全局项先合成一层：combine 的类型安全重载最多 5 参，全局项已满员
         combine(
             prefs.themeMode,
             prefs.dynamicColor,
             prefs.hapticsEnabled,
-            prefs.waterRequireDoubleClick,
-            prefs.waterCardEnabled,
-        ) { theme, dynamicColor, haptics, waterDouble, waterCard ->
-            GlobalPrefs(theme, dynamicColor, haptics, waterDouble, waterCard)
-        },
-        // 共享单车切片（DESIGN §3.9）：三个流合成一层，再并入最外层 combine
-        combine(
-            prefs.ebikeCardEnabled,
-            prefs.ebikeAutoSave,
-            prefs.ebikeRecentIds,
-            ::EbikePrefs,
+            ::GlobalPrefs,
         ),
-        prefs.campusCardEnabled,
         prefs.viewPrefs,
-    ) { global, ebike, campusCard, p ->
+    ) { global, p ->
         // 夹取沿用旧 DataStore 读路径的防线：旧数据/手改数据超出收紧后的滑块范围会让 Slider 抛异常
         DisplayPrefs(
             themeMode = global.theme,
             dynamicColor = global.dynamicColor,
             hapticsEnabled = global.haptics,
-            waterRequireDoubleClick = global.waterDouble,
-            waterCardEnabled = global.waterCard,
-            ebikeCardEnabled = ebike.cardEnabled,
-            ebikeAutoSave = ebike.autoSave,
-            ebikeRecentIds = ebike.recentIds,
-            campusCardEnabled = campusCard,
             // 遗留单开关也一并透出，与实际存储保持一致，免得读了它的人拿到陈旧值。
             showWeekend = p.showSaturday && p.showSunday,
             showSaturday = p.showSaturday,
@@ -360,14 +333,6 @@ class ScheduleRepository(
     // 快捷方式（DESIGN §4.16）：开关与条目列表统一走 store 的 updateShortcuts
     suspend fun setShortcutsEnabled(value: Boolean) = prefs.setShortcutsEnabled(value)
 
-    /** 今日页开水卡片开关（DESIGN §3.3 底部固定区）。 */
-    suspend fun setWaterCardEnabled(value: Boolean) = prefs.setWaterCardEnabled(value)
-
-    /** 今日页共享单车卡开关（DESIGN §3.9）。 */
-    suspend fun setEbikeCardEnabled(value: Boolean) = prefs.setEbikeCardEnabled(value)
-
-    /** 今日页校园卡付款码卡开关（DESIGN §3.10）。凭证的写/清走 YktCredentialStore，不在这里。 */
-    suspend fun setCampusCardEnabled(value: Boolean) = prefs.setCampusCardEnabled(value)
 
     suspend fun updateShortcuts(transform: (List<ShortcutItem>) -> List<ShortcutItem>) =
         prefs.updateShortcuts(transform)
@@ -449,8 +414,6 @@ class ScheduleRepository(
     /** 触感反馈开关（全局）。 */
     suspend fun setHapticsEnabled(value: Boolean) = prefs.setHapticsEnabled(value)
 
-    /** 开水双击确认（全局，默认开）。 */
-    suspend fun setWaterRequireDoubleClick(value: Boolean) = prefs.setWaterRequireDoubleClick(value)
 
     /** 日历同步提前提醒分钟数（全局，0 = 不提醒），供设置页与同步动作共用（DESIGN §4.12）。 */
     val calendarReminderMinutes: Flow<Int> = prefs.calendarReminderMinutes

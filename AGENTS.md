@@ -29,7 +29,7 @@
 | AGP | **8.7.3** |
 | Kotlin | **2.1.21**（+ compose / serialization / KSP 同版本） |
 | Room | **2.7.1**（2.6 + Kotlin 2.1 会 KSP `unexpected jvm signature V`） |
-| Room DB | **v6**：v2 加 `courses.kind`（理论/实验），v3 加多课表（`timetables` 表 + `courses.timetableId`），v4 加成绩表 `scores`，v5 加调课检测（`detect_baselines`/`detect_reports`），v6 加一卡通流水（`ykt_turnovers`，orderId 主键 + jndatetime 索引——实体 `@Index` 必须与迁移 `CREATE INDEX` 对齐，漏声明会迁移校验崩溃）。逐级 `ALTER TABLE`/`CREATE TABLE`，**禁止**改 destructive |
+| Room DB | **v6**：v2 加 `courses.kind`（理论/实验），v3 加多课表（`timetables` 表 + `courses.timetableId`），v4 加成绩表 `scores`，v5 加调课检测（`detect_baselines`/`detect_reports`），v6 加一卡通流水（`ykt_turnovers`，**2026-09-23 该功能已移除，表与迁移保留、无实体**）。逐级 `ALTER TABLE`/`CREATE TABLE`，**禁止**改 destructive |
 | 作息表 | **11 小节**（每节 40 分钟，大节内 5 分钟、大节之间 20 分钟换教室），见 DESIGN 3.5 |
 | 课表网格 | 行号 = **小节号 1–11**（不是大节号）；`Course.startSection/endSection` 也是小节号 |
 | HugeIcons | `com.github.rikkahub:hugeicons-compose:1.4`（**JitPack**，**`isTransitive = false`**） |
@@ -56,7 +56,7 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
 
 单测覆盖：`ScheduleCalculatorTest`、`TimeSlotRulesTest`、`TimeSlotScheduleTest`（作息不变量）、
 `WeekGridLayoutTest`（网格几何）、`QiangzhiScheduleParserTest`、`SyjxScheduleParserTest`、
-`ImportJsonShapeTest`、`TodayStateTest`、`ParseWeeksInputTest`、`QiekjSignTest`、
+`ImportJsonShapeTest`、`TodayStateTest`、`ParseWeeksInputTest`、
 `CourseTweakTest`（调课规划：拆分/覆盖/交换/同格去重）、`TodayBoundaryTest`（小组件边界闹钟时刻）、
 `WidgetModelTest`（小组件：尺寸分档/行数预算/**明日接棒**/周网格列序与去重叠/旧 JSON 兼容）、
 `ExamMapperTest`（考试→课条目映射，含历史学期估算）、
@@ -65,10 +65,9 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
 `ShortcutsTest`（快捷方式：拉起口径/表单校验/预设表/JSON 兜底/列表操作）、
 `ScheduleDetectTest`（调课检测三方合并：归因/冲突/调课不误报/序列化 roundtrip）、
 `JwHttpSessionTest`（检测登录链路：重定向解析参数顺序、IPv4 优先 DNS）、
-`EbikeQrTest`（共享单车出码：URL 拼装/车号校验/BitMatrix 参数/最近车号序列化）、
-`YktKeyboardTest`（校园卡键盘：字形 MD5 表/双射硬校验/密文构造/协议自检）、
-`YktModelsTest`（一卡通响应解析：BOM 剥离/错误码/CARD 账户提取）
-等 35 个测试类。
+`ZhengfangScheduleParserTest`（正方课表：周次单双周/节次范围/注入 JSON）、
+`ZhengfangScoreParserTest`（正方成绩：分页脚本/字段映射/失败口径）
+等 32 个测试类。
 
 行为约定（改之前先读）：
 - 教务页星期只能从课程所在 `<td>` 的**列序**推（第 0 列是节次标签）。`li.qz-hasCourse-N` 恒为 1，不能当星期来源。
@@ -80,7 +79,7 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
   同一节课不得两处出现；节次号只在焦点卡出现一次。改版前先读 DESIGN §3.3。
 - 可见星期序列以 `ScheduleCalculator.visibleDays` 为唯一来源、`columnOf` 取列下标；
   不要用 `day - 1` 当列号（隐藏周六但显示周日时会错位）。
-- 今日页底部固定区（快捷方式网格 + 开水卡）是 `TodayBottomDock`，**钉在滚动区下方**、不进
+- 今日页底部固定区（只剩快捷方式网格，2026-09-23 起）是 `TodayBottomDock`，**钉在滚动区下方**、不进
   `LazyColumn`；三态（加载/空/有课）共用同一份，别只改一处。改版前先读 DESIGN §3.3。
 - 一次性消息**只有一条通道**：页面 Scaffold 的 `snackbarHost = { AppSnackbarHost(snackbar) }`
   （`ui/common/AppNotice.kt`）。语气用 `NoticeTone` 四档，视觉规格见 DESIGN §3.2；
@@ -166,10 +165,8 @@ data/repo/       ScheduleRepository + JSON 导入校验；ScoreRepository（成�
 data/prefs/      DataStore 显示偏好（含 slotSchemaVersion）
 data/jw/         JwUrls + QiangzhiScheduleParser（理论 xskb）+ SyjxScheduleParser（实验 syjx）
                  + ExamScheduleParser / ScoreParser（考试·成绩 = 同源 fetch JSON，非 DOM 解析）
-data/qiekj/      胖乖生活 API（登录/开水/余额/订单）
-data/ykt/        一卡通（新中新慧新e校）登录与付款码（DESIGN §4.19；凭证 ykt_credentials.xml
-                 已排除备份；token 仅内存；无日志拦截器；8002/8003 验证码绝不重试）
-ui/today|week|me|water|campus|jwvw|score|timetable|common|theme|widget|ebike
+
+ui/today|week|me|jwvw|score|timetable|detect|common|theme|widget
 Graph.kt         单例 Repository
 JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件冷启动刷新
 ```
@@ -187,15 +184,15 @@ JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件�
 - 禁止 emoji 当功能图标；HugeIcons 查名用本地 JAR，勿猜
 - 禁止把「能编译」当完成；禁止故意压制编译错误
 
-## 胖乖（P4）
+## 已移除的第三方模块（2026-09-23）
 
-- 参考 `F:\light-life-v3.0`；Base `https://userapi.qiekj.com/`
-- 只做：登录、开水、余额、订单；签到默认关；禁止刷积分
-- 实现在 `data/qiekj/` + `ui/water/`；Token 走 EncryptedSharedPreferences，禁止进日志
-- 一卡通付款码（DESIGN §3.10/§4.19）：密码字段 = 安全键盘密文（字形 MD5 表一次替换）+ `$1$` + uuid；
-  **未知字形/非双射/样板自检不过 = 立即报错不猜**；登录密码仅数字（键盘只映射 0-9）；
-  token 只存内存不落盘；付款码不进日志/剪贴板/相册；凭证交互照 `TweakDetectScreen`（开启先真实验证、关闭即清除）
-  调用链（11 步顺序不可乱）见 DESIGN §4.10
+- **胖乖生活**（一键开水/余额/订单，原 `data/qiekj/` + `ui/water/`）
+- **水宝宝一卡通**（余额/付款码/微信直充/流水，原 `data/ykt/` + `ui/campus/`）
+- **快趣共享单车出码**（原 `ui/ebike/` + `domain/EbikeQr.kt`）
+
+都是原学校（江西水利电力大学）周边的第三方服务，与当前学校无关，代码与入口已整体删除；
+数据库表 `ykt_turnovers` 保留在 v6 迁移中（空表、无实体），桌面备份规则不再排除其凭证文件。
+如需恢复，请从 git 历史（提交 3552f02 之前）取回，并同步 DESIGN §3.4/§3.9/§3.10。
 
 ## 沟通与 DoD
 
@@ -204,7 +201,7 @@ JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件�
 
 ## 阶段状态（见 DESIGN.md §6 里程碑）
 
-P1 脚手架 · P2 Room+UI · P3 我的页导入导出/学期 · P4 胖乖（已实现，待真机验证）·
+P1 脚手架 · P2 Room+UI · P3 我的页导入导出/学期 · P4 胖乖（2026-09-23 随学校切换移除）·
 P5 教务 WebView · P5b 实验课表导入 — **已完成**  
 P6 打磨 — **进行中**
 

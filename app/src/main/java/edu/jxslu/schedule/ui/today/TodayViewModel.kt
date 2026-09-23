@@ -82,30 +82,6 @@ class TodayViewModel(
     val shortcuts: StateFlow<ShortcutSettings> = repo.shortcutSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShortcutSettings())
 
-    /**
-     * 今日页开水卡片开关（DESIGN §3.3 底部固定区）。与 [shortcuts] 同理单独订阅：
-     * 纯设置值，改动不应触发今日页课表状态重算。
-     */
-    val waterCardEnabled: StateFlow<Boolean> = repo.displayPrefs
-        .map { it.waterCardEnabled }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
-
-    /**
-     * 今日页共享单车卡开关（DESIGN §3.9）。与 [waterCardEnabled] 同口径：
-     * 纯设置值单独订阅，不掺进课表状态。
-     */
-    val ebikeCardEnabled: StateFlow<Boolean> = repo.displayPrefs
-        .map { it.ebikeCardEnabled }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
-
-    /**
-     * 今日页校园卡付款码卡开关（DESIGN §3.10）。默认关（涉及凭证与资金），
-     * 「我的 → 校园卡」子页控制；同样单独订阅不掺课表状态。
-     */
-    val campusCardEnabled: StateFlow<Boolean> = repo.displayPrefs
-        .map { it.campusCardEnabled }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
     /** 界面每 30 秒调一次：让「还剩 X 分钟」和课的状态跟着时间走。 */
     fun refreshTick() {
         tick.value = System.currentTimeMillis()

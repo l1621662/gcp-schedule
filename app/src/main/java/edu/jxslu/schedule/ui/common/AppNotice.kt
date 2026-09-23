@@ -94,7 +94,7 @@ fun AppSnackbarHost(state: SnackbarHostState, modifier: Modifier = Modifier) {
 
 /**
  * 提示卡片：圆角 surface 底 + 1dp 描边 + 语气图标（颜色只在图标上，文案恒用 onSurface
- * 保证对比度）。不用 `inverseSurface`，深浅色主题都跟随；不用阴影，与设置卡、开水卡同语言。
+ * 保证对比度）。不用 `inverseSurface`，深浅色主题都跟随；不用阴影，与设置卡同语言。
  */
 @Composable
 private fun AppNoticeCard(data: SnackbarData) {

@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    备份排除：胖乖登录凭证（secure_token.xml）、教务登录凭证（jw_credentials.xml，
-    调课自动检测 DESIGN §4.17）与校园卡凭证（ykt_credentials.xml，DESIGN §4.19）
+    备份排除：教务登录凭证（jw_credentials.xml，调课自动检测 DESIGN §4.17）
     不许进云备份/设备迁移，其余（Room 课表、DataStore 偏好）保持默认可备份。
 -->
 <full-backup-content>
-    <exclude domain="sharedpref" path="secure_token.xml" />
     <exclude domain="sharedpref" path="jw_credentials.xml" />
-    <exclude domain="sharedpref" path="ykt_credentials.xml" />
 </full-backup-content>

@@ -14,16 +14,11 @@ import edu.jxslu.schedule.ui.me.ReminderSettingsScreen
 import edu.jxslu.schedule.ui.me.ShortcutSettingsScreen
 import edu.jxslu.schedule.ui.me.TimetableSettingsScreen
 import edu.jxslu.schedule.ui.me.WidgetSettingsScreen
-import edu.jxslu.schedule.ui.campus.CampusCardSettingsScreen
-import edu.jxslu.schedule.ui.campus.PayCodeScreen
-import edu.jxslu.schedule.ui.campus.StatementScreen
 import edu.jxslu.schedule.ui.detect.ScheduleUpdateScreen
 import edu.jxslu.schedule.ui.detect.TweakDetectScreen
-import edu.jxslu.schedule.ui.ebike.EbikeQrScreen
 import edu.jxslu.schedule.ui.score.ScoreScreen
 import edu.jxslu.schedule.ui.timetable.TimetableManageScreen
 import edu.jxslu.schedule.ui.tweak.CourseTweakScreen
-import edu.jxslu.schedule.ui.water.WaterScreen
 
 /** 二级页种类；通过 extra 传给 [SubpageActivity]，值必须与 enum 名一致。 */
 enum class SubpageScreen {
@@ -35,8 +30,6 @@ enum class SubpageScreen {
     DATA_SETTINGS,
     /** 我的 → 调课（快捷操作，DESIGN §4.11） */
     COURSE_TWEAK,
-    /** 我的/今日 → 胖乖生活一键开水（开水卡显示与点击方式并入页内，DESIGN §3.4） */
-    WATER,
     /** 我的 → 桌面小组件（DESIGN §3.6） */
     WIDGET_SETTINGS,
     /** 我的 → 日历同步（提醒时长 · 一键删除，DESIGN §4.12） */
@@ -51,14 +44,6 @@ enum class SubpageScreen {
     TWEAK_DETECT,
     /** 调课检测的「更新课表」页（差异勾选合并流程，DESIGN §4.17；通知与气泡直达） */
     SCHEDULE_UPDATE,
-    /** 今日 → 共享单车出码（DESIGN §3.9；独立窗口承载二维码展示） */
-    EBIKE,
-    /** 我的 → 校园卡付款码设置（开关 · 凭证，DESIGN §3.10） */
-    CAMPUS_CARD_SETTINGS,
-    /** 今日 → 校园卡付款码展示页（DESIGN §3.10；FLAG_SECURE 独立窗口） */
-    PAY_CODE,
-    /** 付款码/设置 → 消费流水（月汇总 + 分页列表，DESIGN §4.19 B4） */
-    CAMPUS_STATEMENT,
 }
 
 /**
@@ -99,7 +84,6 @@ class SubpageActivity : ComponentActivity() {
             SubpageScreen.TIMETABLE_SETTINGS -> TimetableSettingsScreen(onBack = onBack)
             SubpageScreen.DATA_SETTINGS -> DataSettingsScreen(onBack = onBack)
             SubpageScreen.COURSE_TWEAK -> CourseTweakScreen(onBack = onBack)
-            SubpageScreen.WATER -> WaterScreen(onBack = onBack)
             SubpageScreen.WIDGET_SETTINGS -> WidgetSettingsScreen(onBack = onBack)
             SubpageScreen.CALENDAR_SETTINGS -> CalendarSettingsScreen(onBack = onBack)
             SubpageScreen.REMINDER_SETTINGS -> ReminderSettingsScreen(onBack = onBack)
@@ -111,20 +95,6 @@ class SubpageActivity : ComponentActivity() {
                 onOpenScheduleUpdate = { SubpageActivity.start(this, SubpageScreen.SCHEDULE_UPDATE) },
             )
             SubpageScreen.SCHEDULE_UPDATE -> ScheduleUpdateScreen(onBack = onBack)
-            SubpageScreen.EBIKE -> EbikeQrScreen(onBack = onBack)
-            SubpageScreen.CAMPUS_CARD_SETTINGS -> CampusCardSettingsScreen(
-                onBack = onBack,
-                onOpenStatement = { SubpageActivity.start(this, SubpageScreen.CAMPUS_STATEMENT) },
-                onOpenPayCode = { SubpageActivity.start(this, SubpageScreen.PAY_CODE) },
-            )
-            SubpageScreen.PAY_CODE -> PayCodeScreen(
-                onBack = onBack,
-                onOpenStatement = { SubpageActivity.start(this, SubpageScreen.CAMPUS_STATEMENT) },
-            )
-            SubpageScreen.CAMPUS_STATEMENT -> StatementScreen(
-                onBack = onBack,
-                onOpenSettings = { SubpageActivity.start(this, SubpageScreen.CAMPUS_CARD_SETTINGS) },
-            )
         }
     }
 

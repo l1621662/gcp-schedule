@@ -8,7 +8,7 @@
 
 ## 0. 一句话定位
 
-课表看清 + 教务一键导入 + 胖乖一键开水/余额/订单，一个轻量 App 全包。
+课表看清 + 教务一键导入，一个轻量 App 全包。
 
 ---
 
@@ -22,7 +22,7 @@
 | 拾光教务适配 `shiguang_warehouse` | JS 脚本 + WebView 桥接，学校脚本集中管理 | **教务导入的交互与数据模型范本**（v2 bridge API） |
 | 昆工 `kust-schedule` | 基于拾光深度定制分校 | 深度品牌定制范本 |
 | WakeUp 课程表 | 闭源；开源重制质量不稳 | 不采用 |
-| 胖乖生活 | 本地参考 `F:\light-life-v3.0`（及 GitHub `Inonvation/light-life`） | **一键开水/余额/订单 API 直接复用** |
+| 胖乖生活 | 本地参考 `F:\light-life-v3.0`（及 GitHub `Inonvation/light-life`） | 曾复用其开水 API；2026-09-23 随学校切换移除（§3.4） |
 | HugeIcons Compose | `me.rerere:hugeicons-compose`；查名用仓库内 skill `.agents/skills/find-hugeicons` | 图标不自绘 |
 
 ### 1.2 用户已拍板的决策
@@ -51,8 +51,7 @@
 | 课程管理 | 增删改课程（本地 CRUD） |
 | 教务导入 | WebView 登录教务 → JS 解析 → 写入本地（依赖学校 URL） |
 | 本地存储 | 课表/配置持久化；JSON 导入导出 |
-| 胖乖 | 验证码或 Token 登录；一键开水；余额；订单列表 |
-| 设置 | 学期起止、作息表、深色模式、胖乖开关 |
+| 设置 | 学期起止、作息表、深色模式、今日页展示项 |
 | 图标/主题 | HugeIcons + M3 动态色可选 |
 
 ### 2.2 M2（有余力再做）
@@ -92,8 +91,7 @@
       ├── 课表（副标题「当前：课表名」）：课表管理 / 课表设置（学期·作息）/ 教务导入 /
       │     上课提醒（§3.7）/ 调课 / 调课自动检测（§4.17）/ 成绩查询（§4.15）/ 课表数据
       ├── 小组件与日历：桌面小组件（§3.6）/ 日历同步（§4.12）—— 全局
-      ├── 扩展服务（副标题「第三方 · 非学校官方功能」）：快捷方式（§3.8）/ 快趣出行码（§3.9）/
-      │     水宝宝一卡通（§3.10）/ 胖乖生活一键开水（§3.4，开水页内含开水卡显示与点击方式）
+      ├── 今日页：快捷方式（§3.8）
       └── 关于：版本与免责声明 / 开源仓库
 ```
 
@@ -133,14 +131,14 @@
 | 课表字号 | 网格行高按可用高度算死（11 行约 45–50dp），格子里的文字却是 sp 会跟随系统缩放，因此网格内**单独定字号**：无极滑块，单位是**课名目标字号（dp），范围 8–14dp**（真机确认 12dp 起课名开始明显截断，上限收到 14），网格内其余文字按同一倍率等比缩放；默认跟随系统字体设置（课名基准 × 系统倍率再夹取）；用户拖动后即为权威值（绝对 dp，不随系统/列数漂移），可一键还原「跟随系统」。只收住网格，其余页面仍跟随系统设置。存储键 `grid_font_dp`；旧倍率键 `grid_font_scale` 仅作读路径折算迁移（×11sp 基准） |
 | 图标 | HugeIcons stroke 2px；禁止 emoji 当功能图标 |
 | 加载态（2026-09-20 统一） | 全屏/整页级加载统一 `ui/common/LoadingHint`：**水滴呼吸动画**（`Droplet` 主色 34dp，scale 1→1.12 + alpha 0.72→1，700ms 往复）+ 主文案（bodyMedium）+ 可选副文案（bodySmall 55%），内容双居中。替代裸 `CircularProgressIndicator`（无品牌感）与「`EmptyHint` 文字版当加载态」（不居中、无加载感）。**行内小 spinner 不收编**（按钮内、行尾的 16–24dp 进度指示保持 M3 默认）。居中陷阱：外层容器在 Column 里用 `weight(1f)` 占位时必须同时 `fillMaxWidth()`——Box 默认 wrap 内容、crossAxis 左对齐，今日页加载态左偏即此根因 |
-| 提示（2026-09-19 统一） | 全 App 一次性消息走**同一张卡片**（`ui/common/AppNotice.kt` 的 `AppSnackbarHost`）：圆角 14dp、`surfaceContainerHigh` 底 + 1dp `outlineVariant` 描边、无阴影，与设置卡/开水卡同一语言；**不用 M3 默认的 `inverseSurface`**（浅色主题下就是一块近黑浮条，与页面其余浮层两套观感）。语气四档 `NoticeTone`（Info/Success/Warning/Error）决定**图标 + 强调色**，文案恒用 `onSurface` 保对比度；成功/警告色在 `theme/SemanticColors.kt`（M3 无对应角色，不随动态取色漂移）。调用方只说语气，既有 `showSnackbar("文本")` 调用点不改也能拿到统一观感。<br>**行内变体** `InlineNoticeRow`：当提示注定落在**独立窗口内部**时（M3 的 `ModalBottomSheet`/`AlertDialog` 各是比页面高一层的窗口），页面级提示必然被它盖住——此时把结果放进用户视线所在的那个窗口，而不是想办法把提示抬得更高。已按此改造：导入弹层的检测结果、快捷方式表单的「测试」结果 |
+| 提示（2026-09-19 统一） | 全 App 一次性消息走**同一张卡片**（`ui/common/AppNotice.kt` 的 `AppSnackbarHost`）：圆角 14dp、`surfaceContainerHigh` 底 + 1dp `outlineVariant` 描边、无阴影，与设置卡同一语言；**不用 M3 默认的 `inverseSurface`**（浅色主题下就是一块近黑浮条，与页面其余浮层两套观感）。语气四档 `NoticeTone`（Info/Success/Warning/Error）决定**图标 + 强调色**，文案恒用 `onSurface` 保对比度；成功/警告色在 `theme/SemanticColors.kt`（M3 无对应角色，不随动态取色漂移）。调用方只说语气，既有 `showSnackbar("文本")` 调用点不改也能拿到统一观感。<br>**行内变体** `InlineNoticeRow`：当提示注定落在**独立窗口内部**时（M3 的 `ModalBottomSheet`/`AlertDialog` 各是比页面高一层的窗口），页面级提示必然被它盖住——此时把结果放进用户视线所在的那个窗口，而不是想办法把提示抬得更高。已按此改造：导入弹层的检测结果、快捷方式表单的「测试」结果 |
 
 ### 3.3 关键屏交互要点
 
 **今日**
 
-- 顶部标题两行：`今日` + `9月18日 周四 · 第 7 周`（顶栏不放一键开水图标，入口在底部固定区）
-- 结构：**焦点卡 + 单时间轴 + 贴底固定区（快捷方式网格 → 一键开水卡）**，同一条信息只摆一次
+- 顶部标题两行：`今日` + `9月18日 周四 · 第 7 周`
+- 结构：**焦点卡 + 单时间轴 + 贴底固定区（快捷方式网格）**，同一条信息只摆一次
   - 焦点卡 = 正在上课 / 今天的下一节；正在上课时带整门课进度条与「还有 N 分钟下课」。
     焦点课**不出现在下方列表**（旧版两处重复是"乱"的首要来源）
   - **「下一节」有 60 分钟准入窗口**（2026-09-21 改）：只有下一节课距开始 **≤60 分钟**
@@ -165,32 +163,17 @@
     编辑/删除为二级动作）——此前直跳编辑器易误触，2026-09-19 对齐课表页口径
 - 明天：只在今天没有待上课程（上完 / 没课）时上桌，复用同一行组件；明天也没课给一句休息提示
 - 空态：无课 +「从教务导入」CTA；「尚未开学/未配置学期」给「去设置学期」CTA（跳课表设置）；
-  加载中给进度指示，不留白屏；空态同样显示底部固定区（快捷方式网格 + 骑行卡 + 开水卡）
+  加载中给进度指示，不留白屏；空态同样显示底部固定区（快捷方式网格）
 - **底部固定区 = 真·贴底**（2026-09-19 自「列表尾部两项」改，用户要求底部区置底）：
-  快捷方式网格 + 骑行卡 + 开水卡钉在滚动区**下方**，不随课表滚动——此前它们是 `LazyColumn` 的最后两项，
+  快捷方式三列图标网格（§3.8）钉在滚动区**下方**，不随课表滚动——此前它是 `LazyColumn` 的最后一项，
   课少时悬在屏幕中段、课多时要滑到底才看得见，且空态（贴底）与有课态（跟滚）两种表现。
-  三态（加载中 / 空态 / 有课态）共用同一个 `TodayBottomDock`，位置不随状态漂移。
-  - 快捷方式三列图标网格在上（§3.8），**快趣出行码卡（§3.9）在其下**，开水卡恒在最底；
-    新增快捷方式按序落新行、区块向上生长
-  - **高度上限 = 屏高 45%**，超出时 dock 内部可滚：8 条快捷方式 + 骑行卡 + 开水卡在大字体小屏上足以吃掉
-    半屏，设上限既保住课表可视区，也保证每个入口都还能够到（不设上限会被挤出屏幕且无法访问）
-  - **开水卡恒展示**（2026-09-20 改名：标题自「一键开水 · 〈设备名〉」改「胖乖生活 · 〈设备名〉」，
-    与未登录态同一品牌口径；卡内「开水」按钮与一键出水交互不变；默认开，
-    「胖乖生活一键开水」页尾部设置可关）：
-    已登录保持一键出水交互（解锁按钮/进度/结果原地显示）；未登录显示**未登录态**
-    （「胖乖生活 · 未登录」+ 引导文案），
-    点卡片跳开水页（登录表单就在该页），不再因未登录整卡隐藏
-  - 开水卡在空态同样展示（2026-09-19 修：此前两处空态调用没传 `waterCard`，空态开水卡一直没出现）
-  - **快趣出行码卡（2026-09-20 新增，§3.9）**：快捷方式网格与开水卡之间，样式与开水卡同款
-    （1dp 描边行）；开关关 = 整卡不占位
-  - **水宝宝一卡通卡（2026-09-20 新增，§3.10）**：快趣出行码卡与开水卡之间，样式同款
-    （1dp 描边行）；开关关 = 整卡不占位；dock 内顺序 = 快捷方式网格 → 快趣出行码 → 水宝宝一卡通 → 开水卡
-- **四卡高度统一**（2026-09-20）：快趣出行/水宝宝一卡通/开水卡（含未登录态）同款 1dp 描边卡共用
-    最小高度 58dp（两行文本 36dp + 上下 padding 22dp）——开水卡解锁流程中副标题行收起、
-    尾部「完成/重试」TextButton 被 36dp Box 钳高（防 M3 最小触达 48dp 反向撑高），卡高全程不跳
-
-- **水宝宝一卡通卡在空态同样展示**（食堂扫码不依赖课表有课）
-- 「我的」分区结构（2026-09-20 起，5 分区）：通用 → 课表 → 小组件与日历 → 扩展服务（§3.10）→ 关于
+  三态（加载中 / 空态 / 有课态）共用同一个 `TodayBottomDock`，位置不随状态漂移；
+  快捷方式关掉或列表为空时整段不占位。
+  - 新增快捷方式按序落新行、区块向上生长（自己就是最后一项）
+  - **高度上限 = 屏高 45%**，超出时 dock 内部可滚：8 条快捷方式在大字体小屏上足以吃掉半屏，
+    设上限既保住课表可视区，也保证每个入口都还能够到（不设上限会被挤出屏幕且无法访问）
+  - 2026-09-23 功能裁剪：骑行卡 / 一卡通卡 / 开水卡随 §3.4、§3.9、§3.10 一并移除
+- 「我的」分区结构（2026-09-23 起，5 分区）：通用 → 课表 → 小组件与日历 → 今日页（§3.8）→ 关于
 
 **课表**
 
@@ -243,17 +226,13 @@
   课表设置（学期+作息）/ 教务导入 / 上课提醒（§3.7）/ 调课 / 调课自动检测（§4.17）/
   成绩查询（§4.15）/ 课表数据（导出·导入·清空）—— 课表级，随当前课表（导出与清空也是当前课表口径）
 - 小组件与日历：桌面小组件（§3.6）/ 日历同步（§4.12）—— 全局
-- 扩展服务（副标题标注「第三方 · 非学校官方功能」）：快捷方式（§3.8）/ 快趣出行码（§3.9，
-  2026-09-20 改名，原「共享单车卡」）/ 水宝宝一卡通（§3.10，2026-09-20 改名，
-  原「校园卡付款码」，副标题「攻破水宝宝，一键启动！」）/ 胖乖生活一键开水（§3.4，
-  2026-09-20 改名并合并，原「开水」+「开水设置」两条——设置并入开水页后只留一条）
+- 今日页：快捷方式（§3.8，开关与条目都在子页内）
 - 关于：版本与免责声明 / 开源仓库
 
-2026-09-20 重排理由：校园卡原单条目独占一卡（粒度不统一），并入「扩展服务」与胖乖同卡——
-两者同为第三方/非官方服务；成绩查询原插在「教务导入」与「调课」之间，打断课表配置流，移至组尾；
-分区顺序 = 全局 → 课表（核心）→ 小组件与日历 → 扩展服务 → 关于。同日二改：「快捷方式」与
-「共享单车卡」（今日页行为开关）自「通用」挪入「扩展服务」，「通用」收成纯观感组；
-「开水设置」子页并入开水页，「我的」侧胖乖只剩一条入口。此前 2026-09-19 重排中
+2026-09-23 重排：原「扩展服务」下的快趣出行码 / 水宝宝一卡通 / 胖乖生活三条随功能裁剪移除
+（§3.4、§3.9、§3.10），只剩「快捷方式」，分区名改为「今日页」。
+2026-09-20 的既有理由：成绩查询原插在「教务导入」与「调课」之间，打断课表配置流，移至组尾；
+分区顺序 = 全局 → 课表（核心）→ 小组件与日历 → 今日页 → 关于。此前 2026-09-19 重排中
 「显示设置」曾归「通用」（跨 Tab 触发），2026-09-20 起删除（唯一入口 = 课表页眼睛图标，见 §3.1）。
 
 排版约定：每分区一张卡，行 = 图标底座 + 标题 + 单行说明；分区卡不写副标题（「课表」卡
@@ -272,23 +251,9 @@
 
 ### 3.4 胖乖开水页
 
-1. 未登录 → 手机验证码或粘贴 Token  
-2. 已登录 → 历史设备列表（最近用过的饮水机）  
-3. 大按钮「开水」；可选积分抵扣开关  
-4. 成功 → 页面提示卡 + 本地记一笔订单快照  
-5. 底部：余额、历史订单（分页或简单列表）
-
-**开水设置**（2026-09-20 起并入开水页，`SubpageScreen.WATER_SETTINGS` 已删除）：
-两项都是今日页开水卡的行为——**显示开水卡片**（默认开，关掉今日页不再展示含未登录态）+
-**点击方式**（单击/双击，对今日页开水卡与开水页大按钮同时生效）。2026-09-19 曾收进
-独立「开水设置」子页，2026-09-20 并入开水页尾部（登录/未登录两态共用同一区块），
-不再单独成页。均不依赖登录态——未登录也能关卡片显示与调点击方式；登录/退出在页内完成。
-「我的」侧入口名「胖乖生活一键开水」（2026-09-20 起，原「开水」）。
-
-**提示出口（2026-09-19）**：登录/验证码/出水超时/登录失效/查询失败等一次性结果走页面
-`AppSnackbarHost`（语气随结果：失败=错误、超时与失效=警告、登录成功=成功），
-不再用系统 Toast。今日页开水卡的相同事件也由**今日页**收集展示——
-此前只有开水页收事件流（今日页点「开水」后的超时/失效提示全部静默丢弃，Channel 无人消费）。
+> **已移除（2026-09-23）**：胖乖生活（一键开水 / 余额 / 订单）是江西水利电力大学周边的第三方服务，
+> 与当前学校无关，代码已整体删除（`data/qiekj/`、`ui/water/`）。今日页不再有开水卡，
+> 「我的」页的胖乖入口一并移除。历史规格见 git 历史与 `docs/devlog.md`（本地）。
 
 ### 3.5 作息表（2026-09-17 实测，唯一准绳）
 
@@ -491,7 +456,7 @@
 
 ### 3.8 今日页快捷方式（2026-09-19，P6）
 
-给常用第三方入口一排**三列图标网格**，放今日页**底部固定区**（一键开水卡正上方，空态也在）。
+给常用第三方入口一排**三列图标网格**，放今日页**底部固定区**（空态也在）。
 默认开、可在设置关；入口 **我的 → 通用 → 快捷方式**（`SubpageScreen.SHORTCUTS`，独立二级页）。
 
 #### 展示与交互
@@ -500,7 +465,7 @@
   假期恰是取件码高频时段，课表为空不等于入口该消失。
 - 形态：**三列正方形应用图标网格**（2026-09-19 自横滑 chips 改，用户拍板）：每项 =
   方形图标块（约 52dp、圆角 12dp、内嵌 `ShortcutIcon`）+ 块下单行名称；三项一行、超出换行；
-  新增条目按列表顺序落最后的新行，区块向上生长（开水卡恒在最底，见 §3.3 底部固定区）。
+  新增条目按列表顺序落最后的新行，区块向上生长（见 §3.3 底部固定区）。
 - 预设 3 个：拼多多取件码（scheme 直达取件页）、淘宝身份码（淘宝内打开身份码页）、
   菜鸟（**显式 Activity 直达首页**，跳过开屏广告；2026-09-20 名称改「菜鸟（无广启动）」自述该差异，
   未编辑槽经 `PRESET_HISTORY` 迁移自动换名）。
@@ -523,106 +488,14 @@
 
 ### 3.9 共享单车扫码（2026-09-20，P6）
 
-学校共享电单车由第三方小程序运营（扫码开车）。车身二维码 = 一条普通链接的二维码
-（`https://www.kvcoogo.com/ebike?id=<车号>`），运营方在小程序后台配了「扫普通链接二维码
-打开小程序」规则，**完整 URL（含 id）经 `q` 参数透传给小程序**。因此改 id 生成的二维码
-前缀不变、规则照命中，小程序加载对应车辆——App 内输入车号生成二维码，微信一扫即开车。
-（可行性 2026-09-20 真机验证；「App 直拉小程序」走不通：开放平台拉起 SDK 需企业主体认证、
-URL Link/scheme 需运营方 access_token，本项目个人开发者两条都不满足，二维码是唯一通路。）
-
-#### 入口（今日页底部固定区，与开水卡同级）
-
-- **快趣出行码卡**（2026-09-20 标题改「快趣出行码」，原「快趣出行」；「我的 → 扩展服务」
-  同名开关行；首版叫「共享单车 · 输车号出码」）：
-  快捷方式网格之下、开水卡之上，样式与开水卡同款 1dp 描边行（`ScooterElectric` 图标）；
-  副行「生成骑行二维码后用微信扫一扫开车」。
-- 点击进独立二级页 `SubpageScreen.EBIKE`（`SubpageActivity` 承载，右滑转场与其他二级页一致）。
-- **开关**：`ebikeCardEnabled`，默认**开**（用户明确要求入口常驻）；关 = 整卡不占位。
-  空态（课表空/未开学）同样展示——假期恰是骑行高频时段，与快捷方式同理由。
-
-#### 二维码页（`ui/ebike/EbikeQrScreen`）
-
-| 项 | 规格 |
-|----|------|
-| 车号输入 | 尾部 3 位数字；完整车号模板 `100000` 内置于 `EbikeQr`（单测口径），拼 `?id=100000NNN`。3 位非数字/为空禁止生成，行内提示 |
-| 生成 | 点击生成 720×720px QR（`zxing:core`，容错 M，白边 1 模块），**展示区直接出码** |
-| 自动保存 | 生成即存系统相册（`Pictures/水贝贝`，JPEG 90），**开关 `ebikeAutoSave` 默认关**（用户拍板）——相册里只留用户真的要的码。开关放码下方一行；保存成功/失败走页内 `InlineNoticeRow`（弹层窗口纪律，Snackbar 不穿透二级页窗口） |
-| 扫完即焚 | 保存到相册的码在**回到 App 后自动删除**，**开关 `ebikeBurnAfterScan` 默认开**（保存码是扫码一次性耗材，不留痕）。机制：保存成功记录待焚毁 key（`ebikePendingDelete` stringSet，持久化——进程被杀恢复后仍能删）；页面 ON_RESUME 时 `EbikeViewModel.burnPending()` 按 key 分流删除（29+ 自己 insert 的 MediaStore uri，owner 免权限；26–28 自己写的公共目录文件），删成功的移出记录、失败的保留重试。开关关 = 完全回到旧语义（不新增记录也不删残留）。出码页生成按钮点击同时收起键盘 |
-| 最近车号 | 最近 8 个生成过的车号 chips（DataStore 列表，倒序去重），点击回填；仅本地，不入 git |
-| 提示 | 「打开微信扫一扫」按钮 best-effort 发 `weixin://dl/scan`（**非官方 scheme**，可能被拒），失败走 `InlineNoticeRow` 引导手动扫；manifest `queries` 声明微信包可见性仅用于该探测 |
-| 提亮 | **不做**自动屏幕提亮（用户拍板） |
-
-#### 实现落位与红线
-
-- `domain/EbikeQr.kt`：URL 拼装、车号校验、BitMatrix 生成——纯 JVM 可测（`EbikeQrTest`）；
-  Bitmap 渲染与 MediaStore 落盘属 UI/data 层不进单测。
-- 依赖只加 `com.google.zxing:core`（纯 Java 单 jar，无传递依赖）。
-- **不做**：不绕过运营方任何校验（id 非法由小程序自行报错）；不缓存他人车号；无网络请求。
-- 页面文案不出现运营方品牌名（非官方功能，与开水模块同免责口径）。
+> **已移除（2026-09-23）**：快趣共享单车出码同样只服务于原学校周边，代码已删除
+> （`ui/ebike/`、`domain/EbikeQr.kt`、`domain/UnlockFlowState.kt`），今日页底部固定区不再有骑行卡。
 
 ### 3.10 校园卡付款码（2026-09-20，P6；默认关闭）
 
-一卡通（新中新「慧新e校」，`yktwx.juwp.edu.cn`）的**付款码**搬进 App：食堂/超市扫码消费
-用，网页端就是一张 QR（内容 = 20 位数字原样编码）+ 一条 Code128。App 自动登录后取码展示，
-替代「打开微信 → 进 H5 → 等加载」三步。协议 2026-09-20 用 Python 完整复现实测通过
-（登录 0.9s、取码 10 个/批、码长 20 位、二维码内容自检一致）。
-
-#### 入口（今日页底部固定区，与开水卡同级）
-
-- **水宝宝一卡通卡**（2026-09-20 改名，原「校园卡付款码卡」；「我的 → 扩展服务」同名入口，
-  副标题「攻破水宝宝，一键启动！」）：共享单车卡之下、开水卡之上，样式与开水卡同款 1dp 描边行
-  （`CreditCard` 图标）；卡标题「水宝宝一卡通」，副行「点击出示 · 等同现金」。
-- **卡右侧卡内余额**（2026-09-21 追加）：开关开启且余额取到后显示 `¥xx.xx`（主题色，
-  与取码/充值同链路刷新）；点余额弹**功能入口弹层**（`CampusEntrySheet`）：当前余额 +
-  充值 / 消费流水 / 认证码（付款码）三入口；**卡片整体点击仍直达付款码页（不变）**。
-  充值弹层（`RechargeSheet`）与到账成功弹窗（`CampusArrivalDialog`）与设置页共享
-  （`ui/campus/CampusRechargeUi.kt`），VM 同为 `CampusCardViewModel`（init 自检开关，
-  关时零网络动作）。
-- 点击进独立二级页 `SubpageScreen.PAY_CODE`（`SubpageActivity` 承载）。
-- **开关**：`campusCardEnabled`，**默认关**（涉及凭证与资金，用户显式开启）；
-  关 = 整卡不占位（即「不在今日页显示」）。空态（课表空/未开学）同样展示。
-- 开关入口在**我的 → 校园卡**（`SubpageScreen.CAMPUS_CARD_SETTINGS`），不在显示设置——
-  它管的不只是「显不显示」，还有凭证与启用状态，独立成页。
-
-#### 设置页（我的 → 校园卡）
-
-| 项 | 规格 |
-|----|------|
-| 开关 | 默认关。**开启 = 输入学号 + 密码后先真实登录验证一次**，成功才落库并置开关（照 §4.17 口径）；失败报原因，开关保持关 |
-| 关闭 | 二次确认「关闭并清除凭证」——清除 EncryptedSharedPreferences 里的学号密码，开关回落 |
-| 凭证卡 | 学号 + 密码两输入框（密码 `NumberPassword` 键盘：登录键盘只映射 0-9，字母密码无法过键盘这关，存了也没用）；密码显示态可切换；已保存时密码框留空 = 沿用 |
-| 说明文案 | 开关卡下方：付款码等同现金、随时变更、勿截图勿分享否则可能被盗刷；凭证 Android Keystore 加密存本机、不进云备份、不发送第三方；可随时关闭，关闭即清除；**若因启用本功能造成损失，开发者概不负责** |
-| 凭证卡副标题 | 「校园卡账号为学号，默认密码通常为身份证后六位（仅支持数字密码）」——放在输入框上方作引导，非承诺 |
-
-#### 付款码页（`ui/campus/PayCodeScreen`）
-
-| 项 | 规格 |
-|----|------|
-| 打开即取码 | 自动登录 → `codebarPayinfo` 取 CARD 账户 → `batchGetBarCodeGet` 取一批 10 码，展示第 1 个；三态 = 加载（**骨架占位**：与成功态同布局的 QR 方图/条码条/文本条呼吸块，码渲染完成零位移替换，2026-09-21 追加）/ 错误（原因 + 重试按钮）/ 成功（大码 + 信息行） |
-| 渲染 | QR（zxing 容错 M，720px，白边 1 模块）+ Code128 条码双展示（与网页端 `chunk-fa993c88` 同内容：20 位数字原样编码，无前缀无包装） |
-| 防截屏 | `FLAG_SECURE`（截屏/最近任务缩略图全黑）+ 屏幕亮度拉满（`windowAttributes.screenBrightness = 1f`，离开页面恢复）——付款码是现金等价物，网页端 H5 也这么防 |
-| 换下一个 | 「下一个码」按钮：本地索引 +1 展示批内备用码（服务端口径：每个码有效 `expires` 秒≈4.8h，用掉自动递补）；索引耗尽自动重新取一批。**每次进页只取一批**，反复进页不叠加申请（防攒码） |
-| 信息行 | 卡号掩码 + 「第 N/10 个 · 约 X 小时有效」+ 警示「付款码等同现金，请勿分享」 |
-| 不做 | 不存相册、不进剪贴板、不做消费流水入口——只做「出示码」这一件事（余额展示 2026-09-21 起在今日页卡片与设置页承载） |
-
-#### 实现落位与红线
-
-- `domain/YktKeyboard.kt`（纯 JVM）：字形 MD5 → 数字表（**全量 32 位**，2026-09-20 实测两轮
-  会话一致；来源见 §4.19）、`buildMapping`（双射硬校验，未知字形抛错绝不猜）、
-  `buildPasswordField`（`密文$1$uuid`）、`looksLikeSampleInvariant`（协议自检）。
-- `data/ykt/`：`YktCredentialStore`（EncryptedSharedPreferences，prefs 文件 `ykt_credentials`，
-  照 `JwCredentialStore`）、`YktModels`（响应解析 + BOM 剥离 + 错误码）、`YktClient`（裸 OkHttp，
-  `Dispatchers.IO`，Basic 凭据 + `synjones-auth` 头）、`YktRepository`（登录编排 + 取码）。
-- `ui/campus/`：`CampusCardSettingsScreen` + `PayCodeScreen` + 各自 ViewModel（WaterViewModel
-  的 UiState/Channel 模式）。
-- 安全红线：**token 仅内存缓存不落盘**（70 天有效期也不缓存，换更小的泄露面）；无
-  HttpLoggingInterceptor；凭证/密码/token 不进日志、不进 git；`backup_rules.xml` /
-  `data_extraction_rules.xml` 排除 `ykt_credentials.xml`；无自动重试（失败即停，防撞风控）；
-  触发图形验证码（code 8002/8003）时引导用户去浏览器登录一次，**脚本绝不硬试**。
-- 合规口径：模拟客户端操作、非官方功能、风险自负（与开水模块同款免责）；不做充值/挂失/
-  转账等任何资金变动接口，只调只读查询与取码。
-
----
+> **已移除（2026-09-23）**：水宝宝一卡通（余额 / 付款码 / 微信直充 / 消费流水）是原学校的校园卡服务，
+> 代码与入口已整体删除（`data/ykt/`、`ui/campus/`、`domain/Ykt*.kt`）。
+> 数据库里 `ykt_turnovers` 表保留在 v6 迁移中（空表、无实体），不为删表再叠一层迁移去动老库。
 
 ## 4. 技术架构
 
@@ -641,10 +514,9 @@ ui/                 Compose Screen + ViewModel
   today/ week/ settings/ water/ courseedit/ jwvw/
 domain/             纯 Kotlin 模型与用例（Course, Semester, ...）
 data/
-  local/            Room 或 DataStore（课程、配置、胖乖 token）
+  local/            Room 或 DataStore（课程、配置、偏好）
   remote/           Retrofit + OkHttp
     jw/             教务相关（M1 主要是 WebView + JS，未必有纯 HTTP）
-    qiekj/          胖乖 API
   repo/             Repository 汇聚
 core/               Result 封装、日志、调度（WorkManager 可选）
 ```
@@ -809,35 +681,7 @@ SSO 落点 500；关闭即恢复。`JwVpnDetector` 在失败路径探测 `TRANSP
 
 ### 4.5 胖乖 API（源：light-life）
 
-Base：`https://userapi.qiekj.com/`  
-内容类型：`application/x-www-form-urlencoded;charset=UTF-8`  
-UA 可参考：`okhttp/3.14.9`  
-Channel：`android_app`
-
-| 能力 | 接口（Form POST） | 备注 |
-|------|-------------------|------|
-| 发验证码 | `common/sms/sendCode` | `phone`, `template=reg` |
-| 登录/注册 | `user/reg` | `channel`, `phone`, `verify` → 返回 token |
-| 余额 | `user/balance` | 需 token |
-| 历史设备 | `goods/latestUsed` | `categoryCode=5`（饮水类，以实测为准） |
-| SKU | `goods/normal/skus` | `goodsId` |
-| 设备详情 | `goods/normal/details` | 含 imei 等 |
-| 风控检查 | `userIntegral/checkUserIsRisk` | |
-| 支付通道 | `payChannelRoute/addUserAfterPayChannel` | method=15 |
-| 位置校验 | `orderRisk/isCheckLocation` | |
-| **开水** | `goods/water/unlock` | `skuId`, `promotions`, `token` |
-| 同步 | `goods/water/sync` | |
-| 订单详情 | `order/detail` | `orderId` |
-
-实现注意：
-
-- Token 存 EncryptedSharedPreferences 或 DataStore + 非备份目录  
-- 一键开水按 light-life 的顺序调用，不要漏风控/通道步骤  
-- 订单列表：优先本地 `OrderHistoryStore` 快照；接口有列表再补  
-- **禁止**实现刷积分  
-- 签到若做，做成设置开关，默认关，并注明可能违反平台条款  
-
-免责声明（设置/关于页必须有）：模拟客户端操作，风险自负，仅供学习。
+> **已移除（2026-09-23）**：胖乖（P4）接口实现与规划已整体删除，见 §3.4。
 
 ### 4.6 网络与依赖清单（建议版本族，初始化时锁定）
 
@@ -1030,7 +874,7 @@ v3 时代「旧全局键 → 课表 1 行」的迁移被本迁移替代合并（
 
 | 层 | 存储位置 | 内容 |
 |----|----------|------|
-| 全局 | DataStore | 主题模式、**显示偏好全部字段**（2026-09-19 起全局，键 `view_prefs_json`）、胖乖、教务账号、`current_timetable_id`、`default_config_source_id` |
+| 全局 | DataStore | 主题模式、**显示偏好全部字段**（2026-09-19 起全局，键 `view_prefs_json`）、教务账号与检测状态、`current_timetable_id`、`default_config_source_id` |
 | 课表级 | Room，随课表存取/复制/删除 | 学期配置、作息表（含 `slots_customized` 标记） |
 
 `ScheduleRepository.displayPrefs` 对 UI 仍暴露合并后的 `DisplayPrefs`，但**全部字段都是全局**
@@ -1087,121 +931,7 @@ v3 时代「旧全局键 → 课表 1 行」的迁移被本迁移替代合并（
 
 ### 4.10 胖乖生活开水模块（P4 框架规划，2026-09-17）
 
-**范围**
-
-| 做（M1/P4） | 不做 |
-|----|----|
-| 验证码登录 + Token 粘贴登录 | 刷积分（**硬性禁止**） |
-| 余额（积分/小票/可抵扣） | 签到（M2，做也默认关） |
-| 历史设备列表 + 一键开水完整链路 | 桌面快捷方式（M2） |
-| 本地订单快照列表 | 趣智校园淋浴（light-life 有，本期不搬） |
-| 免责声明 + Token 不进日志 | 前台 Service 保活（页面级生命周期） |
-
-**模块落位（对齐 §4.2 分层，参照 light-life 但不整包照搬）**
-
-```
-data/qiekj/
-  QiekjApiConfig.kt          Base/VERSION/channel/secret/promotions 常量（对齐 light-life ApiConfig）
-  QiekjApi.kt                Retrofit Form POST 接口（§4.5 的 13 个端点）
-  QiekjHeaderInterceptor.kt  统一头 + sign 装配（登录接口不带 sign/token）
-  QiekjModels.kt             ApiEnvelope + 各端点 DTO + TokenExpiredException
-  QiekjJson.kt               脏数据容错（data 可能是 ""、数字当字符串，见下）
-  QiekjTokenStore.kt         token/phone 加密存储
-  QiekjOrderHistoryStore.kt  订单快照（按 orderNo 去重，上限 50）
-  QiekjRepository.kt         登录/余额/设备/unlock 流程编排（onStep 回调驱动 UI）
-  QiekjErrorDiagnosis.kt     错误→原因+建议（实名/位置风控/设备离线/次数用完…）
-domain/
-  QiekjSign.kt               SHA-256 签名纯函数（JVM 可测，与 Interceptor 分离）
-  UnlockFlowState.kt         Idle/PreChecking/Working/Success/Failed
-ui/water/                    WaterScreen + WaterViewModel + 登录/设备/订单 Sheet
-Graph.kt                     增 qiekjRepository(context) 单例
-```
-
-**关键技术决策**
-
-1. **序列化沿用 kotlinx-serialization**（工程已有，不引 Moshi）。轻乖接口返回脏数据：`data` 可能是
-   空串、数字字段当字符串返回——light-life 用 EmptyData/LenientString 两个 adapter 兜住。kotlinx
-   等价方案：`ApiEnvelope.data` 声明为 `JsonElement` 再二次 decode，或自定义 lenient KSerializer，
-   P4a 先定并配单测。
-2. **Token 存储**：EncryptedSharedPreferences（`androidx.security:security-crypto:1.1.0`，light-life
-   已验证），并在 `backup_rules.xml` / `data_extraction_rules.xml` 排除 secure prefs（对齐 light-life）。
-3. **签名抽纯函数**：sign（SHA-256 of `appSecret=..&channel=..&timestamp=..&token=..&version=..`+path）
-   放 domain 便于单测；Interceptor 只做装配。登录类接口（`common/*`、`user/reg`）channel 用
-   LOGIN_CHANNEL 且不带 sign。
-4. **开水状态机**：`UnlockFlowState` 进 domain，ViewModel 驱动；Mutex 防重入；Working 阶段 UI 显示
-   165s 自动结算倒计时兜底（light-life 同款，服务端超时自动关阀）。
-5. **轮询**：`goods/water/sync` 等 `workStatus==2`，1s 间隔、上限 300 次，放 repository suspend +
-   delay，随协程取消；须记录「曾经出过水」（`everWorked`）区分设备未启动。
-6. **网络层**：复用工程 Retrofit 2.11 + OkHttp 4.12；`HttpLoggingInterceptor` BASIC 级（不打 header，
-   token/sign 不进日志）；共享单例 client（20s 超时）。
-
-**开水调用链（顺序不可乱，对齐 light-life unlockDevice，每步失败走诊断）**
-
-```
-goods/latestUsed(categoryCode=5) 取设备
-→ goods/normal/skus(goodsId)        取 skuId（必需，缺失即报错）
-→ goods/water/sync                  设备预检（失败不阻断，仅记录）
-→ goods/normal/details(goodsId)     取 imei（必需）
-→ userIntegral/checkUserIsRisk      积分风控检查（必需，失败阻断）
-→ payChannelRoute/addUserAfterPayChannel(method=15)  开通后付（必需）
-→ orderRisk/isCheckLocation(categoryCode=04, imei)   位置风控（必需）
-→ goods/water/unlock(skuId, promotions, token)       启动出水；promotions 两套常量 JSON
-  （带积分 / 不带积分，按设置开关选择）
-→ 轮询 goods/water/sync（1s × ≤300，workStatus==2 为出水中）
-→ order/afterPay/creating(orderNo)  创建后付订单（orderNo 取 sync.identify ?: unlock.orderNo）
-→ order/detail(orderId)             取真实账单（字段语义见下方「账单口径」，2026-09-20 实测回填）
-→ 写本地订单快照 OrderHistoryStore
-```
-
-**账单口径（2026-09-20 真机实测回填，修复「实付显示 0 看似 bug」）**
-
-`order/detail` 真实响应关键字段（单位均为元；单号/设备号等隐私字段略）：
-
-```
-markPrice          计量计费金额（本次用水的原价口径）
-payPrice           实付金额（服务端口径，本口径为展示实付的唯一权威来源）
-payTypeName        支付方式名（如「支付宝-代扣」，后付单 payType=15 对应 method=15 渠道）
-tokenCoinDiscount  平台侧自动优惠金额（如 0.09；用户未主动用券也会出现，感知不到，
-                   这是「实付 0 但用户以为没抵扣」困惑的根源）
-tradeOrderItem[].originPrice / realPrice   原价 / 实付（与 payPrice 一致）
-promotionList[].promotionType / discountAmount / subsidyAmount
-                   4=券类抵扣（含平台自动优惠）、8=积分抵扣；subsidyAmount=平台补贴
-```
-
-- **实付展示口径**：优先取服务端 `realPrice`（回退 `payPrice`，都缺失才回退本地
-  `origin - Σdiscount` 公式）。公式保留作兜底，不再作为主口径——服务端账单是唯一权威。
-- **订单详情弹窗必须展示账单明细**（原价 / 券与平台优惠 / 支付方式 / 实付），
-  实付为 0.00 时用户能看出钱被什么抵掉；只展示一个孤零零的「实付 ¥0.00」视同信息缺失。
-- 本地快照同步存 `realPrice` / `payTypeName`（可空，默认 null 兼容旧快照）。
-
-**UI 接入**
-
-- WaterScreen：未登录→登录 Sheet（验证码/Token 两种）；已登录→设备选择 + 「开水」大按钮 +
-  积分抵扣开关 + 余额行 + 订单 Sheet；状态区 Idle/进行中/成功/失败 原地切换（不弹新卡）。
-- 我的页：胖乖卡片（余额摘要 + 入口）；今日页：已登录时顶栏「一键开水」快捷入口。
-- 错误呈现：一行主因 + 「查看详情」弹窗（失败步骤 + 建议），对齐 light-life 的 DiagnosisResult。
-
-**验收 / 单测（JVM）**
-
-- `QiekjSignTest`：固定输入 → 固定 SHA-256 输出（与 light-life 算法逐字节对齐）。
-- promotions 两套常量 JSON 合法性（decode 不抛）。
-- `TokenExpiredException.isTokenExpired` 启发式（401/403/文案关键词）。
-- 订单快照序列化往返 + 按 orderNo 去重 + 上限 50。
-- `UnlockFlowState` 状态机用 fake QiekjApi 走全流程（成功/风控失败/设备未启动）。
-
-**P4 内部里程碑**
-
-| 阶段 | 内容 | 门禁 |
-|------|------|------|
-| P4a 网络骨架 | ApiConfig/Api/Interceptor/Models/Json/TokenStore + 签名单测 | assembleDebug + 单测 |
-| P4b 登录+余额 | sendCode/reg/balance + 登录 Sheet + 我的页胖乖卡片 | 真机登录成功 |
-| P4c 开水主链路 | latestUsed→unlock 状态机 + WaterScreen | 真机开水一次成功 |
-| P4d 订单+收尾 | 订单快照 Sheet + 今日页快捷入口 + 免责声明 | 真机全路径 |
-
-风险：接口再变（§7.2，网络层集中改）；轮询长任务页面退后台被杀（M1 接受，开关水前提示保持在
-前台）；风控类失败（实名/位置/次数）不可程序化绕过，只给诊断建议。
-
----
+> **已移除（2026-09-23）**：胖乖生活开水模块（P4）随 `data/qiekj/`、`ui/water/` 一并删除，见 §3.4。
 
 ### 4.11 调课（快捷操作，2026-09-18，参考拾光）
 
@@ -1590,7 +1320,7 @@ diff(base→ours) 只用于冲突判定，不进报告。
 
 #### 安全与红线
 
-- 凭证存 EncryptedSharedPreferences 新文件 `jw_credentials.xml`（范本 `QiekjTokenStore`）；
+- 凭证存 EncryptedSharedPreferences 新文件 `jw_credentials.xml`（EncryptedSharedPreferences）；
   `backup_rules.xml` / `data_extraction_rules.xml` 增加排除（本 App `allowBackup=true`，
   不排除会随云备份走）。
 - `scripts/README.md` §7 口径同步更新为：「App 不出现硬编码密码；用户显式开启
@@ -1612,257 +1342,11 @@ D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 �
 
 ### 4.18 共享单车扫码（2026-09-20，P6；UI 规格见 §3.9）
 
-`https://www.kvcoogo.com/ebike?id=<车号>` 的二维码在微信里命中运营方配置的
-「扫普通链接二维码打开小程序」规则，完整 URL 以 `q` 参数透传给小程序页面，
-小程序自行解析 id 加载对应车辆——**改 id 生成的二维码前缀不变、依然命中**。
-
-- `domain/EbikeQr.kt`（纯 JVM）：
-  - `bikeUrl(tail: String): String?` — 模板 `100000` + 3 位数字尾部，拼
-    `https://www.kvcoogo.com/ebike?id=100000NNN`；尾部非 3 位数字返回 null。
-  - `qrMatrix(url: String): BitMatrix` — zxing 720px、容错 M、白边 1 模块。
-  - `recentBikeIds(json: String?): List<String>` / `encodeRecentIds(...)` —
-    最近车号列表的 JSON 序列化（倒序去重、上限 8），脏 JSON 回空列表。
-- `data/prefs`：`ebikeCardEnabled`（今日页卡开关，默认开）、`ebikeAutoSave`
-  （生成即存相册，**默认关**，用户拍板）、`ebikeRecentIds`（JSON 列表）经
-  `ScheduleRepository.displayPrefs` 既有合并链透出；`ebikeBurnAfterScan`（扫完即焚，
-  **默认开**）、`ebikePendingDelete`（待焚毁 key 集合，stringSet）为出码页私有
-  **直接读写 store**，不进 DisplayPrefs 合并链（待删集合是高频翻搅的过程态，
-  不该进 UI 向快照；未来若其它页面要读焚毁开关再接线）。
-- `ui/ebike/`：`EbikeViewModel`（生成/保存/历史/焚毁）、`EbikeQrScreen`（输入 + 大码 +
-  自动保存开关 + 扫完即焚开关 + 最近 chips + 微信扫一扫 best-effort）。落相册走 MediaStore
-  `Pictures/水贝贝`（API 29+ 免权限；26–28 需 `WRITE_EXTERNAL_STORAGE` 运行时申请）。
-- 扫完即焚（2026-09-20）：`EbikeQrBitmaps.saveToGallery` 成功返回 `SaveResult.Saved`
-  （附待焚毁 key：`m:` 前缀 MediaStore uri / `f:` 前缀文件路径，编码在 `EbikeQr` 纯 JVM 可测）；
-  保存方（手动或自动）按 `ebikeBurnAfterScan` 把 key 并入 `ebikePendingDelete`；
-  页面 ON_RESUME 触发 `EbikeViewModel.burnPending()`，逐 key `deletePending`
-  （29+ `ContentResolver.delete` 自己的 uri，26–28 `File.delete`），成功才移出记录，
-  失败保留下次重试；防重入 + 开关关闭时不删。
-- 依赖：`com.google.zxing:core`（单 jar 无传递）。
-- 测试：`EbikeQrTest`（URL 拼装/校验/BitMatrix 参数/历史序列化 roundtrip/待焚毁 key
-  编码与解析/待焚毁集合合并上限）。
+> **已移除（2026-09-23）**：共享单车扫码出码链路已整体删除，见 §3.9。
 
 ### 4.19 校园卡付款码（2026-09-20，P6；UI 规格见 §3.10，默认关闭）
 
-新中新「慧新e校」移动平台（`https://yktwx.juwp.edu.cn/plat/`，前端 Vue2+Vant）的
-学号登录可完全用 HTTP 复现：**登录密码走「安全键盘」，本质是一次字符替换**——服务端每次
-下发 10 张数字字形图（base64 PNG，跨会话固定同一组、顺序随机）与等长的乱序字符集
-（`numberKeyboard`），点第 i 个键发第 i 个字符；提交时拼 `密文$1$uuid`，服务端凭 uuid 还原。
-传输层无任何密码学保护，防御目标是偷看而非抓包——**因此复现合法且可行，2026-09-20 实测通过**
-（Python 侧两轮键盘会话字形 MD5 全命中、双射成立、登录 0.9s、取码 10 码/批、JWT
-`logintype=snoKeyboard`）。
-
-#### 接口与链路（`data/ykt/YktClient.kt`，裸 OkHttp）
-
-| 步骤 | 方法 | 路径 | 说明 |
-|------|------|------|------|
-| 1 | GET | `/berserker-secure/keyboard?type=Number&order=1` | 取 uuid + 乱序字符集 + 10 张字形图 |
-| 2 | POST | `/berserker-auth/oauth/token` | OAuth2 password 模式，`Authorization: Basic mobile_service_platform:mobile_service_platform_secret`（前端硬编码，非机密） |
-| 3 | GET | `/berserker-base/user` | 用户档案（本期不展示，仅登录校验用可选） |
-| 4 | GET | `/berserker-app/ykt/tsm/codebarPayinfo` | 付款账户列表，取 `code=CARD` 的实体卡账户 |
-| 5 | GET | `/berserker-app/ykt/tsm/batchGetBarCodeGet?account&payacc&paytype` | 一批 10 个 20 位付款码，`expires=17280` 秒/个 |
-
-**余额与流水（2026-09-20 实测；数据源 = `/campus-card/` 独立前端应用「校园一卡通」，与 `/plat/` 同后端同 token）**：
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/berserker-app/ykt/tsm/queryCard` | 卡列表 + 余额：`data.card[]` 每卡 `db_balance`/`unsettle_amount`/`elec_accamt`（均分）/`expdate`/`lostflag`/`freezeflag`。**余额口径 = `(db_balance + unsettle_amount) / 100`**（campus-card 前端同款换算） |
-| GET | `/berserker-search/search/personal/turnover?size&current` | 消费流水（分页）：`data.records[]` + `data.total`/`data.pages`；**不带任何时间参数**（见下），时间倒序全量 |
-| GET | `/berserker-search/statistics/turnover/count` | 全量汇总：`data.expenses`/`data.income`（分）；**带时间参数同样清零，不可用**（月汇总由客户端求和） |
-
-- **时间参数实测矩阵（2026-09-20，该部署后端与 H5 前端版本不匹配）**：`timeFrom`/`timeTo`
-  （campus-card H5 发的参数名）单独传被忽略、组合传（`YYYY-MM-DD`/`YYYYMMDD`/带时分秒/
-  历史月/参数反传）**直接清零**；`dateFrom/dateTo`、`startDate/endDate`、`beginDate/endDate`、
-  `time`（单日/月值）、`jnDate` 全部无效。**月过滤在客户端做**：无参全量拉（`size=100`
-  被尊重，实测 726 条约 10 个月 / 8 页），VM 缓存后按 `jndatetimeStr` 前缀切月 + 求和；
-  翻页直到覆盖所选月或拉完全量。
-
-- 流水 `records[]` 字段（实测 30 个，UI 只取子集）：`tranamt`（分）、`typeFrom`（`"1"`=收入/
-  `"2"`=支出）、`turnoverType`（类型名：消费/二维码支付/充值…）、`jndatetimeStr`（交易时间）、
-  `remark`/`resume`（摘要）、`cardBalance`/`ebagamt`（**交易后余额快照**，分）、`locationName`
-  （商户/终端）、`orderId`。
-- 探测存档：`berserker-search` 服务在 `/plat/` 前端零出现，只存在于 `/campus-card/`
-  应用（`frontInfo.getFrontConfig.campusCard` 外链）；该应用 chunk 请求必须带
-  `Referer: …/campus-card/`（否则回退页），app.js 的 chunk hash 表随请求轮换（含 `31d6cfe0`
-  空 chunk），静态扫描需多轮采样合并——复探时勿只抓一轮。
-
-- 步骤 2 表单字段：`username / password / grant_type=password / scope=all / loginFrom=h5 /
-  logintype=sno / device_token=h5 / synAccessSource=h5`（Content-Type 为
-  `application/x-www-form-urlencoded`；`synAccessSource` 是前端 axios 拦截器追加的，漏了不报错但保持一致）。
-- 步骤 3–5 鉴权头 `synjones-auth: bearer <token>`；所有响应可能带 UTF-8 BOM（`\uFEFF`），
-  解析前剥离。错误码：HTTP 400 = 凭证错（`Bad credentials`，**与密文构造错误同貌**——先怀疑
-  构造再怀疑密码）；`code 8001` = 学号绑多账号（只报错不自动选）；`8002/8003` = 触发图形
-  验证码（**绝不重试**，引导浏览器登录一次）；401 = token 失效（重登一次）。
-
-#### 字形映射（`domain/YktKeyboard.kt`，纯 JVM）
-
-- `HASH2DIGIT`：**全量 32 位 MD5 → 数字**（2026-09-20 两次会话实测一致；8 位前缀在两张表
-  碰撞时才会歧义，全量表零成本消除）。识别方法与失效重识别流程见 `docs/`（本地）
-  或外部技术文档：alpha 合白底 → 裁包围盒 → 保比例归一 → 与 NimbusSans 字形 IoU 匹配，
-  孔洞数与宽高比交叉复核。
-- `buildMapping(images, chars)`：逐张查表组 `digit→char`；**未知哈希直接抛
-  `YktProtocolException`**（平台换字体的信号，宁报错不猜）；结果必须是 0-9 双射，否则同上。
-- `buildPasswordField(password, mapping, uuid)`：逐位替换 + `"$1$"` + uuid；
-  入参含非数字字符抛 `IllegalArgumentException`（登录键盘只映射 0-9）。
-- `looksLikeSampleInvariant(keyboard)`：协议自检——服务端响应自带 `password` 字段 =
-  `numberKeyboard + "$1$" + uuid`，每次登录顺带校验，不一致抛协议漂移（零成本的改版探测器）。
-
-#### 登录编排（`data/ykt/YktRepository.kt`）
-
-- token **仅内存缓存**（`@Volatile`），进程存活期内复用；401 时重登一次。不落盘——
-  token 有效期 6047999 秒（≈70 天），缓存意味着磁盘上多一份可直接消费的凭证，放弃。
-- 无任何自动重试与退避：失败直接上抛分类异常（`YktException.Credential/NeedCaptcha/
-  MultiAccount/Protocol/Network`），UI 层给对应文案。付款码取码**每次进页最多一批**。
-- 前端把密码截断到 16 位（`slice(0,16)`）：6 位数字密码不受影响，构造时同样截断以对齐行为。
-
-#### 模块落位
-
-```
-domain/YktKeyboard.kt      # 字形表 + 映射/密文构造 + 协议自检（纯 JVM，YktKeyboardTest）
-domain/YktPayCode.kt       # QR + Code128 BitMatrix（纯 JVM）
-data/ykt/YktCredentialStore.kt  # EncryptedSharedPreferences（ykt_credentials.xml），照 JwCredentialStore
-data/ykt/YktModels.kt      # 响应模型（kotlinx，容错 msg/message）、BOM 剥离、错误码、
-                           # YktCard（余额）/ YktTurnover（流水）/ 分页包装解析
-data/ykt/YktClient.kt      # OkHttp 请求（Basic/synjones-auth 头，IO 调度，无日志拦截器）
-data/ykt/YktRepository.kt  # 登录编排 + 内存 token + 取码 + 余额 + 流水；Graph.yktRepository() 单例
-ui/campus/CampusCardSettingsScreen.kt  # 开关/凭证/文案/余额状态（照 TweakDetectScreen 交互）
-ui/campus/PayCodeScreen.kt             # 三态取码页 + 余额行 + FLAG_SECURE + 亮度拉满
-ui/campus/StatementScreen.kt           # 消费流水页（月汇总 + 月切换 + 分页列表）
-```
-
-- `data/prefs`：只加 `campusCardEnabled`（bool，默认 false）经 `DisplayPrefs` 透出——
-  **凭证状态不进 DataStore**（读 `YktCredentialStore.read() != null` 即可）。
-- 渲染：`domain/YktPayCode.kt` 出 QR + Code128 BitMatrix（纯 JVM 可测），Bitmap 着色走
-  `ui/common/CodeBitmaps`（与共享单车共用，不复制）。
-- 依赖：无新增（`com.google.zxing:core:3.5.3` 已由 §4.18 引入；zxing 的
-  `Code128Writer` 属 core 包）。
-
-#### 余额展示与消费流水（2026-09-20 追加，B1–B6；本地统计库 L1–L5）
-
-- **余额**：`queryCard` 取卡列表；付款码页顶部一行（「卡余额 ¥19.95 · 电费 ¥0.00」，多卡求和）
-  + 设置页状态区；随取码同链路刷新，无额外登录成本。
-- **流水页**（`SubpageScreen.CAMPUS_STATEMENT`）：
-  - 头部 = 当月支出/收入汇总 + 月份切换（前后月，未来月禁用）；
-  - 列表 = 按 `jndatetimeStr` 日期分组（今天/昨天/MM月dd日），
-    行 = 类型名 + 摘要 + 时间 / 金额（支出 −、收入 +）；
-  - 行点击展开详情（时间/类型/商户/订单号/余额快照）——底部弹层，不新开页。
-  - **不含**筛选/搜索、标签管理；图表仅年视图支出柱状（自绘 Canvas，不引图表库）。
-- **本地流水库（L1–L5，Room v5 → v6）**：
-  - 动机：接口只支持无时间参数全量倒序拉、服务端历史窗口约 10 个月——本地持久化后
-    数据越攒越全、离线可查、进页秒开（先显本地，后台增量同步后刷新）。
-  - 表 `ykt_turnovers`：`orderId` 主键（服务端订单号，天然去重）、`jndatetime`（交易时间
-    epoch 毫秒）、`tranamtFen`、`income`、`turnoverType`、`remark`、`resume`、
-    `balanceAfterFen`、`locationName`、`syncedAt`；索引 `jndatetime`。逐级 CREATE TABLE
-    非 destructive（迁移纪律同 §4.17）。个人消费记录非凭证，**随云备份**（与课表/成绩同口径）。
-  - **增量同步**（`YktTurnoverSyncer`）：时间倒序翻页，**遇到已入库 `orderId` 即停**；
-    本地已有近月数据时通常 1 页（100 条）内完成；全量首同步约 8 页。`Dispatchers.IO`
-    + upsert 幂等；功能关闭（清凭证）时**保留**本地流水（历史账不随开关消失）。
-  - 流水页数据源 = **本地库优先**：进页先显 Room 数据（秒开、离线可看），后台同步后刷新；
-    月份过滤/汇总全部 SQL 完成（`GROUP BY`）。
-  - **统计**：月卡片（支出/收入/结余 + 分类 Top3）；年视图 = 近 12 个月支出柱状
-    （自绘 Canvas，一条 `GROUP BY strftime('%Y-%m')` 查询）。数据在本地，统计零网络。
-- 流水属只读查询（`berserker-search` 查询服务），不碰资金变动接口；本地库只是流水副本，
-  无任何写回服务端的操作。
-- 入口：付款码页次行「消费流水」+ 设置页余额状态区同一行点击（不新增我的页行）。
-
-#### 小优化（2026-09-20 第二批）
-
-- **取码链路总超时**：`PayCodeViewModel.load` 包 `withTimeoutOrNull(30s)`（4 跳各自
-  15/20s，最坏叠加 80s——宁可明确报超时也不无限转圈，口径同 §4.17 的 60s）。
-- **开启即验证 CARD 账户**：`CampusCardViewModel.saveAndEnable` 登录验证成功后顺带
-  `queryCard`，无卡账户 / 数据异常在设置页即暴露。
-- **token 缓存单点**：`YktRepository.cachedToken` 为唯一持有者，`*WithToken` 系列不再
-  要求调用方回传镜像——调用方只传凭证，token 生命周期完全归 repo。
-
-#### 安全与红线
-
-- 凭证存 EncryptedSharedPreferences 新文件 `ykt_credentials.xml`；`backup_rules.xml` /
-  `data_extraction_rules.xml` 排除（本 App `allowBackup=true`，不排除会随云备份走）。
-- 无 HttpLoggingInterceptor；任何异常路径不打印密码/token/付款码全文。
-- 付款码页 `FLAG_SECURE`（防截屏 + 防最近任务缩略图）；亮度拉满离开即恢复。
-- 只调只读接口（登录/档案/账户/取码/余额/流水查询）+ **充值下单/删单**（§4.19「充值」，
-  仅用户主动触发，不自动充值）；**挂失、转账、改限额一律不做**
-  （queryCard 响应里的 autotrans/modifyAcc 相关能力不触碰）。
-- README 免责声明同步：新增「校园卡登录同样模拟客户端操作；付款码等同现金，泄露可能被盗刷」。
-
-#### 测试清单（JVM）
-
-- `YktKeyboardTest`：全量表形状（10 项、0-9 齐全）；`buildMapping` 正常/未知哈希抛错/
-  重复字符非双射抛错；`buildPasswordField` 已知映射的构造与 16 位截断；非数字密码抛错；
-  样板自检真/假两例。
-- `YktModelsTest`（照 ExamMapperTest 注入 JSON 模式）：键盘响应解析（BOM 剥离）、
-  账户列表取 CARD、取码响应（`barcode` 10 项 + expires）、错误码（400/8001/8002/8003）、
-  queryCard 卡列表解析（分转元口径）、turnover 记录解析（typeFrom 语义/金额/日期容错）、
-  分页包装（total/pages）。
-- `YktTurnoverSyncerTest`（纯逻辑部分）：增量停止条件（遇已入库 orderId 即停 / 拉到空页 /
-  全量拉完）、jndatetime 解析容错、月键切分。DAO/SQL 由 Room 编译期校验 +
-  真机验收覆盖（本项目对 Room 层无 Robolectric 先例，保持口径）。
-
-#### 阶段拆解
-
-C1 文档 → C2 `YktKeyboard` + 测试 → C3 `data/ykt` 四件套 + Graph 注册 + 备份排除 →
-C4 设置页 + 我的页入口 → C5 付款码页（渲染 + FLAG_SECURE）→ C6 今日页卡片 + 接线 →
-C7 构建与单测全绿 + 真机验证（登录/取码需真机与真实凭证；Python 侧已全链路验证）。
-B1 文档（余额+流水接口）→ B2 数据层 + 单测 → B3 付款码页余额行 → B4 流水子页 →
-B5 设置页余额状态 → B6 构建全绿 + 真机验证。
-B7–B9 小优化（总超时/CARD 预检/token 单点）→ L1 文档 → L2 Room v6 表 + DAO + 迁移 →
-L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状）→ L5 构建全绿 + 真机验证。
-
-#### 充值（2026-09-21 追加，方案二：App 内下单 + 外部浏览器支付）
-
-**实测链路**（`scripts/out/probe_ykt_*.py`，2026-09-21；凭证走环境变量不入库）：
-
-1. 配置：`frontInfo.getFrontConfig` JSON → `recharge:"401"`（feeitemid）、
-   `payment:"…/payment/"`（官方收银台独立 Vue 应用，**自己不创建订单**，从 URL query 注入
-   `synjones-auth` 登录态 + `orderid`）。
-2. 下单 = **HTML 表单同步提交**（非 JSON API）：`POST /charge/order/thirdOrder`
-   （campus-card 充值页 chunk `d98c9872` 的 `confirm()` 原样还原），字段：
-   `feeitemid=401`、`appid=56321`、`tranamt=<元，浮点，amount-input parseFloat 不乘100>`、
-   `source=app`、`synjones-auth=bearer <token>`、`yktcard=<卡 account>`、
-   `synAccessSource=h5`，外加签名三件套 `APP_ID/TIMESTAMP(yyyyMMddHHmmssSSS)/NONCE/SIGN_TYPE`。
-3. **签名算法**（收银台 chunk `6affa2d0` 与充值页一致，`appid`/`SECRET_KEY` 均硬编码于
-   公开前端 JS）：参数并集（业务字段 + `APP_ID=56321` + `TIMESTAMP` + `NONCE` + `SIGN_TYPE=SHA256`），
-   **key 字典序**、跳过空值（`0` 保留）与 `SIGN/SECRET_KEY` 两键，拼 `k=v&`，
-   末尾拼 `SECRET_KEY=<密钥>`，SHA256 十六进制**大写**。
-4. 支付：收银台 `GET /charge/pay/getpayinfo?orderid=` 拉订单与 `payList` 渠道 →
-   `POST /blade-pay/pay`（同一签名算法，`paystep:2`；CARD/ACCOUNT 账户余额渠道需支付密码
-   `password="1$1$<6位>$1$<键盘uuid>"` 或短信验证码，密码键盘同 berserker-secure）。
-   渠道矩阵：`CARD/CARDTSM/ACCOUNT/ACCOUNTTSM`（余额类）、`BCM`、**weixin=JSAPI**
-   （`WeixinJSBridge.chooseWXPay`，**仅微信环境可用**）、**alipay=webUrl 跳转**（外部浏览器可用）。
-   支付结果经 `wss://…/websocket/mobile_service_platform/bankcard_recharge/{orderid}` 推送；
-   未支付订单收银台侧超时关闭，另有 `POST /charge/order/deleteOrder`。
-5. **实测形态（2026-09-21，0.01 元真实下单 ×2 + 只读查单）**：`thirdOrder` 成功 = **302
-   Location** 下发完整收银台 URL `/payment?orderid=<id>&token=<JWT>`（登录态参数名是
-   `token` 不是 `synjones-auth`；App 不自己拼，直接打开 Location）。**`queryCard` 的
-   `account` 是 6 位数字卡号（如 24xxxx），不是学号**——`yktcard` 必须用查询返回的
-   account（首版误传学号导致「未找到要充值的卡账户」，已修）。查单 `getpayinfo`：
-   `order.status=0`（待支付）、`payList` 单条 **CAMPUSCARD /「微信充值」**（payid=63，
-   `nopassword=0` = 需 6 位消费密码，即食堂 POS 密码，只在官方页输入）——本校园
-   微信充值即此渠道，无独立支付宝/微信 code。`deleteOrder` 实测 500（平台侧行为），
-   未支付订单由收银台超时关闭（前端配置 delayTime=30 分钟），不扣款。客户端 OkHttp
-   必须关闭自动重定向跟随才能拿到 302 Location。
-
-**App 侧实现（方案二）**：
-
-- `domain/YktRechargeSign.kt`（纯 JVM）：sign 算法 + `buildTimestamp`；单测覆盖排序/空值/大小写。
-- `YktRepository.rechargeCreate(username, password, yuan)` → 卡校验（account=6 位卡号）→
-  组表单 + SIGN + `thirdOrder`（302 Location）→ **`payDirect` 直拉微信**（等效收银台
-  「立即付款」：`blade-pay/pay` 的 synjones-auth 走 **header**（表单字段报「未获取到用户
-  信息」）→ checkmweb 中间页（**Referer 必须商户域名**）→ 抓 `weixin://wap/pay?…`），
-  返回 `YktRechargeOrder.WechatPay`；任一环失败降级 `Cashier`（服务端 302 下发的收银台 URL）。
-  `rechargeCancel` → 删单（实测 500，平台行为，收银台 30 分钟超时关闭兜底）。
-- UI（校园卡设置页余额卡内「充值」）：底部弹层输金额（预设 20/50/100/200，0.01–500 元校验）
-  → 二次确认（账户+金额）→ 下单 → `WechatPay` 直接 `ACTION_VIEW` 拉微信支付（**跳过
-  浏览器与收银台页**；实测免密，微信内生物/密码确认由微信侧完成）→ **到账状态机**
-  （`ArrivalState`：余额卡内嵌「等待到账」行（30s 轮询 × 30 分钟窗口，饭卡充值常见
-  延迟数分钟至数十分钟）→ 检测到即弹「充值成功」对话框（金额+当前余额）；双判定 =
-  余额增加（主）或增量流水出现晚于下单时刻的新记录（辅，覆盖余额视图滞后）；超时给
-  安抚提示「到账后消费流水自动显示」）。
-- 余额卡**进页即渲染**：余额未取到时「获取中…」占位（数据到达平滑填充，不跳动）。
-- 红线：App 全程**不收集支付密码/银行卡**（免密渠道的支付确认在微信客户端内完成）；
-  不自动充值；`weixin://` 拉起链接含一次性 prepay_id（约 5 分钟有效），不落盘不进日志；
-  SIGN 密钥是前端公开常量（非逆向所得），平台改版即失效，报错兜底文案给「平台可能已改版」。
-
----
+> **已移除（2026-09-23）**：校园卡付款码 / 充值 / 流水链路已整体删除，见 §3.10。
 
 ## 5. 非功能
 
@@ -1872,7 +1356,7 @@ L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状
 | 权限 | 网络 + 可选 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`（小组件后台及时性，见 §3.6）；震动按 M2 再要 |
 | 性能 | 首页可交互 < 2s（中端机冷启动参考） |
 | 体积 | APK 目标 < 15MB（无大资源时应远小于此） |
-| 稳定 | 胖乖接口失败不崩溃；教务 WebView 与原生状态分离 |
+| 稳定 | 教务 WebView 与原生状态分离；第三方接口失败不崩溃 |
 | 合规 | README/设置含免责；不内置破解/刷分 |
 
 ---
@@ -1885,7 +1369,7 @@ L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状
 | P1 工程脚手架 | 可编译空壳 3 Tab + 主题 + HugeIcons | Android Studio / SDK |
 | P2 课表域 | 本地课表 CRUD + 今日/周课表 UI | P1 |
 | P3 导入导出 | JSON 双向；手动 HTML 解析（可选） | P2 |
-| P4 胖乖 | 登录/开水/余额/订单 | P3 可并行 |
+| P4 胖乖 | ~~登录/开水/余额/订单~~ 2026-09-23 随学校切换移除（§3.4） | — |
 | P5 教务 WebView | 适配江西水利电力大学 | **教务 URL** |
 | P5b 实验课表导入 | ✅ **已完成**（2026-09-17）：`SyjxScheduleParser` + `CourseKind`/DB v2 + 导入入口区分 + 周课表标注与筛选（见 §4.8） | P5 |
 | P6 打磨 | 深色、动效、错误态、真机 | P2–P5b |
@@ -1895,7 +1379,7 @@ L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状
 ## 7. 风险
 
 1. **教务未知**：无 URL 则 P5 阻塞；用手动课表兜底。  
-2. **胖乖接口变更**：light-life 已提示接口可能再变；网络层集中改 Base/路径。  
+2. **教务/第三方接口变更**：教务页面结构或第三方接口随时可能变；解析与网络层各自集中收口。  
 3. **包名/品牌侵权观感**：名称用「水贝贝」等非官方注册滥用词；README 注明非学校官方。  
 4. **路线 D 工期**：比 fork 长；M1 严格砍范围，先能上课、能开水。  
 5. **实验课表 DOM 未知**：必须先做 §4.8 Step 0 快照，否则解析器只能靠猜；syjx 页面若为 AJAX 渲染，注入时机需实测。  
@@ -1926,7 +1410,7 @@ L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状
   现为一条「水贝贝 · 课表」，内容按实测尺寸分档（`SizeMode.Exact`）
 - [x] 小组件是否要周课表迷你网格 → **要**（2026-09-20 反转）：4×4 及以上显示本周迷你网格 + 摘要行，见 §3.6
 - [x] 小组件能否进负一屏（澎湃OS）→ **不能**（原生组件限制，见 §3.6「负一屏」）；替代路径为日历同步
-- [x] 胖乖是否默认集成签到 → **默认否**；仅设置开关，默认关
+- [x] 胖乖是否默认集成签到 → **默认否**；仅设置开关，默认关（2026-09-23 该模块已整体移除）
 
 ---
 
@@ -1938,7 +1422,7 @@ L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状
 | https://github.com/XingHeYuZhuan/shiguang_warehouse | JS 适配与仓库结构 |
 | https://github.com/XingHeYuZhuan/shiguangschedule/wiki/如何适配教务v2 | 教务 v2 数据模型与 bridge |
 | https://github.com/linling-zy/kust-schedule | 分校深度定制 |
-| 本地 `F:\light-life-v3.0` | 胖乖 API 与 UI 模块 |
+| 本地 `F:\light-life-v3.0` | 胖乖 API 与 UI 模块（2026-09-23 起仅作历史参考，代码已移除） |
 
 ---
 
@@ -1946,13 +1430,14 @@ L3 增量同步器 + VM 接本地库 → L4 统计视图（月卡片 + 年柱状
 
 原 §4.9–§4.19 是逐日实现记录（占全文 58%），2026-09-18 拆出：**规格类内容（多课表数据模型、胖乖调用链）
 回填为本文件 §4.9 / §4.10**，纯流水记录移入 **`docs/devlog.md`**（仅本地保留，不入公开仓库）。
+2026-09-23 功能裁剪后，胖乖（§4.10）、共享单车（§4.18）、校园卡（§4.19）三节只剩「已移除」标注。
 
 拆分后的编号对照（代码注释若引用旧编号，按此表理解）：
 
 | 旧编号 | 现在的去处 |
 |--------|-----------|
 | 4.15 | → 本文件 **§4.9 多课表支持**（数据模型与分层，仍在 §4） |
-| 4.16 | → 本文件 **§4.10 胖乖生活开水模块**（调用链与模块落位，仍在 §4） |
+| 4.16 | → 本文件 **§4.10 胖乖生活开水模块**（2026-09-23 已随功能裁剪移除） |
 | 4.9 / 4.10（旧） | 网格字号防护、WakeUp 视觉对齐 → `docs/devlog.md` |
 | 4.11–4.14 | 显示设置扩展、主题、撞色修复 → `docs/devlog.md` |
 | 4.17 ×2 | 设置入口收口（原文件重复编号）→ `docs/devlog.md` |
