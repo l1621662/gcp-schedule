@@ -40,7 +40,7 @@ object ShortcutPinner {
                 ?: return "未安装「${item.name}」"
             null -> return "「${item.name}」还没有配置目标"
         }
-        val info = ShortcutInfo.Builder(context, "juwp_sc_${item.id}")
+        val info = ShortcutInfo.Builder(context, "gcp_sc_${item.id}")
             .setShortLabel(item.name)
             .setLongLabel(item.name)
             .setIcon(pinIcon(context, item))

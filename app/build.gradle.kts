@@ -45,7 +45,7 @@ android {
     buildTypes {
         debug {
             // 包名隔离：debug 与 release 签名不同，同包名会互相覆盖安装（数据全丢）。
-            // 加 .debug 后缀后是两个独立应用，可共存；应用名由 src/debug/res 覆盖为「水贝贝 Debug」。
+            // 加 .debug 后缀后是两个独立应用，可共存；应用名由 src/debug/res 覆盖为「城职课表 Debug」。
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }

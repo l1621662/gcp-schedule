@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 教务/门户为校内 HTTP + 第三方 CA；需放行 cleartext 与调试信任 -->
+<!-- 正方教务（jwcjw.gcp.edu.cn）走 HTTPS；这里只对学校域放行 cleartext 与用户证书，
+     其余流量一律要求系统信任的 HTTPS（base-config）。 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
@@ -7,8 +8,8 @@
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">jiaowu.juwp.edu.cn</domain>
-        <domain includeSubdomains="true">juwp.edu.cn</domain>
+        <domain includeSubdomains="true">jwcjw.gcp.edu.cn</domain>
+        <domain includeSubdomains="true">gcp.edu.cn</domain>
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />

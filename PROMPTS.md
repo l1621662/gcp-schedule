@@ -1,5 +1,11 @@
 # JUWP Schedule · AI 编码提示词包
 
+> ⚠️ **历史文档**：本文件是**原项目 JUWP Schedule（江西水利电力大学 · 强智教务）**的 AI 提示词包，
+> 仅作「怎么一步步搭起这个 App」的参考。本项目（城职课表 · 广州城市职业学院 · 正方教务）
+> 的现状与规格请以 `AGENTS.md` / `DESIGN.md` / `README.md` 为准；下面提到的 CAS、`jiaowu.juwp.edu.cn`
+> 等实现均已删除。
+
+
 按阶段复制对应块到 Cursor / Claude Code / 本体 MiMo 等工具。
 
 > **阶段状态**：P0–P5b 已完成，P6 打磨进行中（见 `README.md` 里程碑表）。
