@@ -84,8 +84,8 @@ $apksigner = (Get-ChildItem "$env:LOCALAPPDATA\Android\Sdk\build-tools\*\apksign
 & $apksigner verify --print-certs app\build\outputs\apk\release\app-release.apk
 ```
 
-- 证书 DN 应为 `CN=Inonvation, OU=JUWP-Schedule, ...`；
-  SHA-256 指纹应为 `1b84b65210ed03da0f8761ec7b2d88ace8fe4bf498c2880aa331830f86c78a29`。
+- 证书 DN 应为 `CN=l1621662, OU=GCP-Schedule, O=GCP-Schedule, C=CN`；
+  SHA-256 指纹应为 `65f99677ac4c99d5abdacb64883f8a230ce2f45655fd8dd53c07ababb282bed3`（2026-09-23 起使用本仓库自己的 release.jks）。
 - 若显示 debug 证书或提示 `keystore.properties 缺失，release 回退 debug 签名`：
   **停止发版**，先找回 `release.jks` + `keystore.properties`（二者不入库，需用户离线备份）。
 
@@ -152,4 +152,4 @@ gh api repos/l1621662/gcp-schedule/releases/tags/<版本号> `
 - 禁止用 debug 签名包对外分发（debug 与 release 签名不同，用户无法覆盖安装）
 - 禁止复用或回退 `versionCode`
 - 禁止用中文文件名上传资产（会被静默改名）
-- 禁止把 `F:\JUWP-schedule` 之外的本地路径写进日志或 Release 正文
+- 禁止把本机绝对路径（`C:\Users\...`、`F:\...` 之类）写进日志或 Release 正文
