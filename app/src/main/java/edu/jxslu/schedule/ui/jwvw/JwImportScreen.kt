@@ -67,7 +67,6 @@ import edu.jxslu.schedule.data.jw.JwImportDiagnosis
 import edu.jxslu.schedule.data.jw.JwSchedulePage
 import edu.jxslu.schedule.data.jw.JwUrls
 import edu.jxslu.schedule.data.jw.JwVpnDetector
-import edu.jxslu.schedule.data.jw.SyjxScheduleParser
 import edu.jxslu.schedule.data.jw.ZhengfangScheduleParser
 import edu.jxslu.schedule.data.jw.ZhengfangScoreParser
 import edu.jxslu.schedule.data.jw.unwrapJsString
@@ -207,24 +206,19 @@ fun JwImportScreen(
         val pageKind = JwUrls.schedulePageKind(currentUrl)
         val extractJs = when (pageKind) {
             JwSchedulePage.Theory -> ZhengfangScheduleParser.EXTRACT_JS
-            JwSchedulePage.Lab -> SyjxScheduleParser.EXTRACT_JS
-            JwSchedulePage.None -> {
+            else -> {
                 val msg = "当前不是课表页。请先点上方「教务主页」，在教务里打开课表查询页后再导入。"
                 statusNote = msg
                 scope.launch { snackbar.showSnackbar(msg) }
                 return
             }
-            else -> return
         }
         busy = true
-        statusNote = if (pageKind == JwSchedulePage.Lab) "正在解析实验课…" else "正在解析课表…"
+        statusNote = "正在解析课表…"
         target.evaluateJavascript(extractJs) { raw ->
             busy = false
             val payload = unwrapJsString(raw)
-            val result = when (pageKind) {
-                JwSchedulePage.Lab -> SyjxScheduleParser.parseExtractJson(payload)
-                else -> ZhengfangScheduleParser.parseExtractJson(payload)
-            }
+            val result = ZhengfangScheduleParser.parseExtractJson(payload)
             when (result) {
                 is ImportParseResult.Failure -> {
                     statusNote = result.message
@@ -613,8 +607,6 @@ fun JwImportScreen(
                                                     }
                                                 page == JwSchedulePage.Exam ->
                                                     "考试安排查询已打开。点下方「导入考试安排」。"
-                                                page == JwSchedulePage.Lab ->
-                                                    "实验课表已打开。点下方「导入实验课表」。"
                                                 page == JwSchedulePage.Theory ->
                                                     "理论课表已打开。点下方「导入理论课表」。"
                                                 JwUrls.SCORE_FRM.substringBefore('?') in u ->
@@ -868,7 +860,6 @@ fun JwImportScreen(
                                 busy -> "解析中…"
                                 mode == JwImportMode.Scores -> "导入成绩"
                                 pageKind == JwSchedulePage.Exam -> "导入考试安排"
-                                pageKind == JwSchedulePage.Lab -> "导入实验课表"
                                 pageKind == JwSchedulePage.Theory -> "导入理论课表"
                                 else -> "打开课表页后可导入"
                             },

@@ -589,11 +589,10 @@ JSON 导入导出字段名与上述一致，便于与拾光用户互导。
 | 成绩数据接口 | `POST /jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005`；分页 `queryModel.showCount` / `queryModel.currentPage`，响应 `{totalResult, items:[…]}` |
 | 证书白名单 | `jwcjw.gcp.edu.cn`（`JwUrls.TRUSTED_SSL_HOSTS`） |
 
-> 强智（江西水利电力大学）那套「统一认证 CAS + `sso.jsp` + `xskb_list.do`」链路已随 2026-09-23
-> 的改版从导入路径移除。`QiangzhiScheduleParser` / `SyjxScheduleParser` / `ScoreParser` 与
-> 调课检测（§4.17）已迁到 `ZfJwSession`（正方无界面登录）；强智的 `QiangzhiScheduleParser` /
-> `SyjxScheduleParser` / `ScoreParser` 现在只剩自身单测在引用，属可清理的死代码（`ExamScheduleParser`
-> 例外——考试导入入口保留，见 §4.14）。
+> 强智（江西水利电力大学）那套「统一认证 CAS + `sso.jsp` + `xskb_list.do`」链路已随 2026-09-23 的改版
+> 从导入路径移除：`QiangzhiScheduleParser` / `SyjxScheduleParser` / `ScoreParser` / `JwHttpSession`
+> 及其单测**已删除**，调课检测改走 `ZfJwSession`（§4.17）。唯一保留的强智实现是 `ExamScheduleParser`
+> ——考试导入入口按要求继续保留（§4.14）。
 
 **导入窗口锁竖屏（2026-09-19）**：`JwImportActivity` 声明 `screenOrientation="portrait"`——
 转屏会销毁 WebView（登录密码输到一半全没）并取消 `rememberCoroutineScope` 里的导入协程。
@@ -707,139 +706,10 @@ SSO 落点 500；关闭即恢复。`JwVpnDetector` 在失败路径探测 `TRANSP
 
 ### 4.8 实验课表导入（syjx / toXskb）
 
-> **已停用（2026-09-23）**：正方把实验课与理论课排在同一张课表里，导入入口已移除
-> （`JwUrls.LAB_SCHEDULE` 置空、底部不再有「实验课表」按钮）。本节强智 `toXskb` 口径与
-> `SyjxScheduleParser` 暂时保留——调课检测（§4.17）仍在引用，迁移到正方后一并处理。
-
-**已确认（2026-09-17 实测，取自登录后主页快照 `scripts/out/jw_xs_main.html`）**
-
-| 项 | 值 |
-|----|-----|
-| 菜单路径 | 实践实验 → 实验课表查询 |
-| URL | `http://jiaowu.juwp.edu.cn:8080/jsxsd/syjx/toXskb.do` |
-| 菜单 data-id | `NEW_XSD_PYGL_WDKB_SYKBCX` |
-| 会话 | 与理论课表同一 WebView 会话，无需二次认证 |
-| 页内条件 | 学年学期下拉 + 周次（全部 / 指定） |
-| DOM | **已实测**（2026-09-17，快照 `scripts/out/syxkb_toXskb.html`，108937 字节） |
-
-同域下另有 `实验预约管理 /jsxsd/syjx/syyy_find.do`、`开放实验预约 /jsxsd/view/syjx/kfsy_find.jsp`、`实验室信息查询 /jsxsd/view/syjx/sysxx_find.jsp`，本期不做。
-
-**与理论课表的本质差异（决定解析策略）**
-
-实验课表网格是「周次 × 节次」**两级纵轴**（周次 1/2/3… 各占一组，组内再分 1-2、3-4、5-6… 节），横轴星期一至星期六；理论课表是「整学期一屏、节次为纵轴」。由此推出两条硬约束：
-
-1. 同一门实验课若排在第 1、3、4 周，页面上是**三个独立课块**；
-2. 课块本身很可能**不带周次字段**，周次信息挂在它所属的**行分组**上。
-
-因此解析**不能**照搬 `QiangzhiScheduleParser`（从 `qz-hasCourse-abbrinfo` 文本 parse 周次），必须**由课块所在周次分组反推 weeks，再聚合成一条**。这是本节最主要的技术判断。
-
-**Step 0 · DOM 快照（已完成）**
-
-快照已落到 `scripts/out/syxkb_toXskb.html`，后续解析器与单测 fixture 直接用它。
-复现方式：复用 `scripts/fetch_courses.py` 的登录函数直连抓 `/jsxsd/syjx/toXskb.do`
-（**脚本必须 `trust_env = False`**，否则会踩 §7 风险 6）。
-
-App 端若需自助取证，可在 debug 构建加「保存当前页 HTML」入口（把
-`document.documentElement.outerHTML` 写入 `filesDir/snapshots/`）。非本期必需，作为后续能力。
-
-**DOM 结构（实测）**
-
-表头 9 列：`周次 | 节次 | 星期一 … 星期日`——**7 天，含周日**。
-
-`table.qz-weeklyTable` 共 121 行，按周次分块，**每个周次占 6 行**：
-
-| 行 | td 数 | 布局 |
-|----|------|------|
-| 周次首行 | 9 | `[周次标签 rowspan=6] [节次标签] [星期一 … 星期日]` |
-| 该周其余 5 行 | 8 | `[节次标签] [星期一 … 星期日]` |
-
-节次标签取值：`1-2` / `3-4` / `5-6` / `7-8` / `9-10` / `11`。
-
-有课的单元格：`td.qz-weeklyTable-td.qz-hasCourse.qz-mixrow`，内部结构为
-`div.td-cell > ul.courselists > li.courselists-item`。
-
-**字段映射**
-
-| 字段 | 来源 |
-|------|------|
-| 星期 | 该 td 在本行 tr 中的索引：8-td 行 `day = idx`；9-td 行 `day = idx - 1`。等价写法 `day = idx - (len(tds) - 8)` |
-| 周次 | 向上取所属 tr，再取其**周次标签 td**（`class` 含 `qz-weeklyTable-label` 且 `rowspan=6`）的文本 |
-| 节次 | 所属 tr 的**节次标签 td** 文本，`a-b` 拆成 `startSection`/`endSection`；单值如 `11` 则首尾相同 |
-| 名称 | `div.qz-hasCourse-title` |
-| 地点 | `div.qz-hasCourse-detailitem`（位于 `qz-hasCourse-abbrinfo` 内，**只含地点**） |
-| 教师 | **页面不提供**，留空 |
-
-**两条实测纠正**（推翻了此前基于理论课表经验的假设）：
-
-1. 实验课表页**没有** `td[name=kbDataTd]`，也**没有** `老师:X;时间:Y;地点:Z` 这种合并 detail 文本
-   ——`qz-hasCourse-abbrinfo` 里只有地点。所以 `QiangzhiScheduleParser` 的抽取逻辑与字段正则
-   **完全不可复用**，必须独立实现。
-2. `div.qz-tooltipContent-detailitem` 里另有 `课程编号：` / `班级：` / `地址：` / `节次：`，
-   但其中 **`节次：60304` 是页面内部编码，不是真实节次**，不要拿它当数据源——真实节次只能取行标签。
-
-**聚合仍必须做**：同一门课在不同周次各出现一次（实测「机电传动控制B / 工程训练中心207」在第 1、2 周
-各一块），且同名课可能配不同地点（「机械制造基础A」实测分布 212 / 105 / 403 三个实训室）。
-故按 `(name, day, startSection, endSection, teacher, position)` 聚合、`weeks` 取并集。
-
-**数据模型（最小扩展）**
-
-```kotlin
-enum class CourseKind { Theory, Lab }   // domain
-```
-
-- `Course.kind: CourseKind = CourseKind.Theory`
-- `CourseEntity.kind: String = "theory"`；DB version 1 → 2，Migration 用
-  `ALTER TABLE courses ADD COLUMN kind TEXT NOT NULL DEFAULT 'theory'`
-  （**禁用** destructive migration，用户已有课表数据）
-- `CourseJson.kind: String = "theory"`：带默认值，旧导出文件仍可读
-- `mergeKey()` 追加 `kind`：避免理论与实践课同名同节次时互相吞并
-
-**解析器**
-
-新增 `data/jw/SyjxScheduleParser.kt`，与理论课解析器并列，**不改动**既有类：
-
-1. 注入 JS 抽 raw 块：`{ name, detail, day, sections, weekGroup }`，`weekGroup` 取自课块所在的周次行分组
-2. **聚合**：按 `(name, day, startSection, endSection, teacher, position)` 分组，`weeks` 取**并集**
-   - 聚合键必须含 `position` / `teacher`：工程训练按批次分周上课，地点与教师可能不同，只按课程名合并会丢信息
-3. **回退**：`weekGroup` 取不到时，用与理论课表相同的 `parseWeeks(detail)` 兜底
-4. 产出 `Course(kind = CourseKind.Lab)`
-
-**UI（叠加 + 样式区分）**
-
-- 实验课与理论课同处一张周课表，**不新建页面**
-- `CourseBlock` 增加 `kind` 分支：跨度 ≥2 节时右下角显示「实验」角标（labelSmall，白色 70%）；单节小格只留色块，避免挤压
-- 周课表顶部加分段筛选「全部 / 理论 / 实验」，默认「全部」
-- **顺带修既有缺陷**：同格重叠的课程现在是 `forEach` 直接叠放、后者覆盖前者；改为按重叠组均分列宽并排显示
-
-**导入交互**
-
-- `JwUrls` 增加 `LAB_SCHEDULE` 常量与 `isLabScheduleUrl(url)`（匹配 `syjx/toXskb`）
-- `JwImportScreen` 底部改为 `[理论课表] [实验课表]` 导航 + `[导入本页]`，按当前 URL 自动选择解析器；两者都不匹配时提示「请先打开学期理论课表或实验课表查询页」
-- 确认弹窗显示「共 N 条，其中实验课 M 条」，避免两种课表混淆
-
-**验收**
-
-- JVM 单测：以 `scripts/out/syxkb.html` 为 fixture，断言条数、周次并集、聚合结果
-- 真机：WebView 登录 → 实验课表 → 导入 → 周课表出现实验课且周次正确；先导理论课表再合并导入实验课不产生重复
-
-**实现记录（2026-09-17）**
-
-| 层 | 文件 | 变更 |
-|----|------|------|
-| domain | `Models.kt` | 新增 `CourseKind{Theory,Lab}`（带 `label`）、`CourseFilter{All,Theory,Lab}`；`Course.kind` |
-| local | `Entities.kt` / `JuwDatabase.kt` | `CourseEntity.kind`；**Room v1 → v2**：`ALTER TABLE courses ADD COLUMN kind TEXT NOT NULL DEFAULT 'theory'`（非 destructive，老数据自动落为理论课） |
-| repo | `ScheduleRepository.kt` | `CourseJson.kind`（默认 `theory`，旧导出文件仍可读）；导出写出；`mergeKey` 追加 `kind` |
-| jw | `SyjxScheduleParser.kt` | **新增**：`EXTRACT_JS` + 聚合 + `parseFromHtml`（单测用正则实现，与 JS 同一套判定规则） |
-| jw | `CourseImporter.kt` | `LAB_SCHEDULE`、`isLabScheduleUrl()`、`schedulePageKind()` 与 `JwSchedulePage` |
-| ui/jwvw | `JwImportScreen.kt` | 底部改「理论课表 / 实验课表 / 导入（按当前页自动命名）」；解析器由当前 URL 决定，不在课表页时给明确提示 |
-| ui/common | `CourseUi.kt` | 实验课：多节块右下角「实验」小字；单节块右上角小圆点（放不下两个字）。**不换色**——颜色已被「不同课程不同色」占用 |
-| ui/week | `WeekSheets.kt` / `WeekViewModel.kt` / `WeekScreen.kt` / `DisplayPrefsStore.kt` | 「显示哪些课程」筛选（默认全部、持久化到 DataStore）；课程详情显示类型；筛选后无课时文案区分「课表为空」与「当前筛选下没有课」 |
-| ui/common | `CourseEditSheet.kt` | **顺带修缺陷**：编辑时未带回非表单字段，自定义时间课会被打回按作息表计算，实验课会被打回理论课 |
-
-验证：`testDebugUnitTest` 全部通过（新增 `SyjxScheduleParserTest` 9 项、`ImportJsonShapeTest` 2 项兼容性断言）；
-`assembleDebug` 通过；`adb install -r` 真机安装成功。
-
----
+> **已随迁移删除（2026-09-23）**：正方把实验课与理论课排在同一张课表里，不需要单独的实验课表页。
+> 导入入口、`JwUrls.LAB_SCHEDULE`、`SyjxScheduleParser` 与其单测已全部删除；
+> 课表数据统一由正方课表页（§4.4）或 `ZfJwSession` 的 `kbList` JSON（§4.17）提供。
+> 本节此前的强智 `toXskb` 实现记录见 git 历史与 `docs/devlog.md`（本地）。
 
 ### 4.9 多课表支持（2026-09-17 规划，用户已拍板三个决策点）
 
@@ -1372,7 +1242,7 @@ D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 �
 | P3 导入导出 | JSON 双向；手动 HTML 解析（可选） | P2 |
 | P4 胖乖 | ~~登录/开水/余额/订单~~ 2026-09-23 随学校切换移除（§3.4） | — |
 | P5 教务 WebView | 适配江西水利电力大学 | **教务 URL** |
-| P5b 实验课表导入 | ✅ **已完成**（2026-09-17）：`SyjxScheduleParser` + `CourseKind`/DB v2 + 导入入口区分 + 周课表标注与筛选（见 §4.8） | P5 |
+| P5b 实验课表导入 | 2026-09-23 **随迁移删除**：正方课表已含实验课，入口与 `SyjxScheduleParser` 一并移除（见 §4.8） | — |
 | P6 打磨 | 深色、动效、错误态、真机 | P2–P5b |
 
 ---
@@ -1402,7 +1272,7 @@ D3 编排调度 + 通知 → D4 设置页 + 更新课表流程 + 气泡 → D5 �
 ## 8. 开放问题（2026 已部分敲定）
 
 - [x] 正式包名与应用名 → `edu.jxslu.schedule` / 显示名「水贝贝」  
-- [x] 教务登录 URL + 厂商 → **已打通**：CAS `eapp2:9443` + 门户 portal + **强智** `jiaowu.juwp.edu.cn:81` → SSO `:8080/jsxsd`；课表 `xskb_list.do?viweType=0`。见 §4.4 / `scripts/fetch_courses.py`。
+- [x] 教务登录 URL + 厂商 → **已打通并通过真机验证**：2026-09-23 起为**正方** `jwcjw.gcp.edu.cn`（登录 `/jwglxt/xtgl/login_slogin.html` + 验证码），课表 `xskbcx_cxXskbcxIndex.html` / 数据 `xskbcx_cxKbxx.html`。旧强智链路（CAS + `sso.jsp` + `xskb_list.do`）已删除，见 §4.4 / §4.17。
 - [x] 默认作息表 → **已实测确定**，见 3.5（11 小节，08:30 起，每节 40 分钟）
 - [x] 开学日与总周数 → 用户未提供；P2 默认总周数 20，开学日在设置中手填  
 - [x] 是否 M1 就要小组件 → **否**，归 M2；**已于 2026-09-18 完成**（今日三尺寸 + 明日预告，见 §3.6 / §4.13）

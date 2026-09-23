@@ -1,6 +1,5 @@
 package edu.jxslu.schedule.ui.common
 
-import edu.jxslu.schedule.data.jw.QiangzhiScheduleParser
 import edu.jxslu.schedule.domain.compactPosition
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -12,9 +11,9 @@ import org.junit.Test
  * 但解析层 `.trim('；',';','）',')')` 把结尾右括号剥掉了，库里存成 `教学北大楼(北B102`，
  * 匹配不到成对括号就原样返回、再被截断。
  *
- * 所以这里同时钉两件事：
- * 1. [compactPosition] 必须能兜住**没闭合**的括号（库里已有脏数据，不可能要求用户重新导入）；
- * 2. [QiangzhiScheduleParser.parseDetail] 不能再把右括号 trim 掉。
+ * 所以这里钉住 [compactPosition]：必须能兜住**没闭合**的括号（库里已有脏数据，不可能要求
+ * 用户重新导入）。旧强智解析器把右括号 trim 掉的那个坑随解析器一起删除；正方解析器直接取
+ * 地点单元格文本、不做 trim，因此这里只保留压缩逻辑本身的契约。
  */
 class CompactPositionTest {
 
@@ -55,22 +54,4 @@ class CompactPositionTest {
         assertEquals("北B203", compactPosition("教学北大楼(北B102)(北B203)"))
     }
 
-    /** 解析层不能再吃掉右括号——否则压缩逻辑永远走兜底分支 */
-    @Test
-    fun parserKeepsClosingParen() {
-        val detail = QiangzhiScheduleParser.parseDetail(
-            "老师:唐刚;时间:11周[1-2节];地点:教学北大楼(北B102)",
-        )
-        assertEquals("教学北大楼(北B102)", detail.position)
-        assertEquals("北B102", compactPosition(detail.position))
-    }
-
-    /** 尾部分号还是要去掉 */
-    @Test
-    fun parserTrimsTrailingSemicolonOnly() {
-        val detail = QiangzhiScheduleParser.parseDetail(
-            "老师:唐刚;时间:11周[1-2节];地点:教学北大楼(北B102);",
-        )
-        assertEquals("教学北大楼(北B102)", detail.position)
-    }
 }

@@ -55,22 +55,22 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
   补一个空的 `gradle-8.10.2-bin.zip.ok`、删掉 `.part`。**不要**改 `distributionUrl`（哈希变则缓存对不上）。
 
 单测覆盖：`ScheduleCalculatorTest`、`TimeSlotRulesTest`、`TimeSlotScheduleTest`（作息不变量）、
-`WeekGridLayoutTest`（网格几何）、`QiangzhiScheduleParserTest`、`SyjxScheduleParserTest`、
+`WeekGridLayoutTest`（网格几何）、
 `ImportJsonShapeTest`、`TodayStateTest`、`ParseWeeksInputTest`、
 `CourseTweakTest`（调课规划：拆分/覆盖/交换/同格去重）、`TodayBoundaryTest`（小组件边界闹钟时刻）、
 `WidgetModelTest`（小组件：尺寸分档/行数预算/**明日接棒**/周网格列序与去重叠/旧 JSON 兼容）、
 `ExamMapperTest`（考试→课条目映射，含历史学期估算）、
-`ExamScheduleParserTest` / `ScoreParserTest`（注入 fetch JSON 解析）、`ScoreCalculatorTest`（学期/学年汇总）、
+`ExamScheduleParserTest`（考试 JSON 解析，强智口径待迁）、`ScoreCalculatorTest`（学期/学年汇总）、
 `ScoreGroupsTest`（成绩学年分组与年级标签）、
 `ShortcutsTest`（快捷方式：拉起口径/表单校验/预设表/JSON 兜底/列表操作）、
 `ScheduleDetectTest`（调课检测三方合并：归因/冲突/调课不误报/序列化 roundtrip）、
 `ZfJwSessionTest`（正方无界面登录：csrf/验证码标记解析、学期编码、会话 cookie 往返、IPv4 优先 DNS）、
 `ZhengfangScheduleParserTest`（正方课表：周次单双周/节次范围/注入 JSON）、
 `ZhengfangScoreParserTest`（正方成绩：分页脚本/字段映射/失败口径）
-等 32 个测试类。
+等 29 个测试类。
 
 行为约定（改之前先读）：
-- 教务页星期只能从课程所在 `<td>` 的**列序**推（第 0 列是节次标签）。`li.qz-hasCourse-N` 恒为 1，不能当星期来源。
+- 正方课表页的星期/节次直接来自单元格 `td.td_wrap[id="<星期>-<节次>"]`，不要改回「按列序推」那套（旧强智算法已随解析器删除）。
 - 课程配色不按课程名哈希取（12 桶内必然撞色），走 `ScheduleCalculator.colorIndexesBySortedName` / `nextColorIndex`。
 - 作息表结构版本存在 DataStore（`DisplayPrefsStore.slotSchemaVersion`）；改作息要同时调 `DefaultData.SLOT_SCHEMA_VERSION` 并给迁移。
 - 课程时间**只有一条口径**：`ScheduleCalculator.courseStartMinutes` / `courseEndMinutes`（自定义时间课以 custom 字段为准）。
@@ -163,8 +163,8 @@ data/local/      Room v5：courses / time_slots / semester_config / timetables /
                  / detect_baselines / detect_reports（调课检测，DESIGN §4.17）
 data/repo/       ScheduleRepository + JSON 导入校验；ScoreRepository（成绩按学期替换）
 data/prefs/      DataStore 显示偏好（含 slotSchemaVersion）
-data/jw/         JwUrls + QiangzhiScheduleParser（理论 xskb）+ SyjxScheduleParser（实验 syjx）
-                 + ExamScheduleParser / ScoreParser（考试·成绩 = 同源 fetch JSON，非 DOM 解析）
+data/jw/         JwUrls + ZhengfangScheduleParser（正方课表 DOM）+ ZhengfangScoreParser（正方成绩）
+                 + ZfJwSession（正方无界面登录，调课检测用）+ ExamScheduleParser（考试，强智口径待迁）
 
 ui/today|week|me|jwvw|score|timetable|detect|common|theme|widget
 Graph.kt         单例 Repository
