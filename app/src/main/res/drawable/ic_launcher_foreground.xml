@@ -4,14 +4,24 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- simple water-drop / schedule mark -->
+    <!-- 城职课表（2026-09-23 换标）：外框 = 「城」的围合，里面四格 = 课表。
+         设计约束：图形全部落在自适应图标中央 72×72 安全区内（18..90），
+         圆形 / 圆角 / 方形遮罩都不会被切；无文字，48dp 下仍可辨认。 -->
+    <path
+        android:pathData="M38,30 H70 A12,12 0 0 1 82,42 V68 A12,12 0 0 1 70,80 H38 A12,12 0 0 1 26,68 V42 A12,12 0 0 1 38,30 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineJoin="round" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,28c-10,14 -18,24 -18,34a18,18 0 1,0 36,0c0,-10 -8,-20 -18,-34z" />
+        android:pathData="M42,43 H48 A3,3 0 0 1 51,46 V49 A3,3 0 0 1 48,52 H42 A3,3 0 0 1 39,49 V46 A3,3 0 0 1 42,43 Z" />
     <path
-        android:fillColor="#1FA3A3"
-        android:pathData="M48,62h12v8h-12z" />
+        android:fillColor="#FFD166"
+        android:pathData="M60,43 H66 A3,3 0 0 1 69,46 V49 A3,3 0 0 1 66,52 H60 A3,3 0 0 1 57,49 V46 A3,3 0 0 1 60,43 Z" />
     <path
-        android:fillColor="#1FA3A3"
-        android:pathData="M50,54h8v6h-8z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,59 H48 A3,3 0 0 1 51,62 V65 A3,3 0 0 1 48,68 H42 A3,3 0 0 1 39,65 V62 A3,3 0 0 1 42,59 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,59 H66 A3,3 0 0 1 69,62 V65 A3,3 0 0 1 66,68 H60 A3,3 0 0 1 57,65 V62 A3,3 0 0 1 60,59 Z" />
 </vector>
