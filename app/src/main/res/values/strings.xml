@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">水贝贝</string>
+    <string name="app_name">城职课表</string>
     <string name="tab_today">今日</string>
     <string name="tab_week">课表</string>
     <string name="tab_me">我的</string>
@@ -8,6 +8,6 @@
     <!-- 课表小组件（DESIGN §3.6）。label 会作为条目名显示在桌面小组件选择器里。
          2026-09-20 起只有一个条目：尺寸拖大拖小自适应（紧凑 / 今日列表 / 本周网格），
          不再按尺寸拆成 2×2 / 4×2 / 4×4 三条（三条内容重复，选择器里看不出区别）。 -->
-    <string name="widget_label">水贝贝 · 课表</string>
+    <string name="widget_label">城职课表</string>
     <string name="widget_description">正在上的课、今日剩余与本周课表，拖大拖小自适应；点开进 App</string>
 </resources>

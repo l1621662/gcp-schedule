@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- debug 源集优先于 main，仅覆盖 app_name，便于在桌面上区分 debug / 正式包 -->
 <resources>
-    <string name="app_name">水贝贝 Debug</string>
+    <string name="app_name">城职课表 Debug</string>
 </resources>

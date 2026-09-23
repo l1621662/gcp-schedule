@@ -42,10 +42,10 @@
 
 1. 创建标准 Gradle Kotlin DSL 工程（settings.gradle.kts / build.gradle.kts / gradle.properties / wrapper）
 2. 应用模块 :app
-   - applicationId edu.jxslu.schedule（已确认）
+   - applicationId edu.gcp.schedule（已确认）
    - minSdk 26，Compose 打开
 3. 依赖：Compose BOM、Material3、Navigation、ViewModel、Retrofit、OkHttp、kotlinx-serialization 或 Moshi、DataStore、Room、me.rerere:hugeicons-compose
-4. 主题：Material3 明暗主题，应用名「水贝贝」
+4. 主题：Material3 明暗主题，应用名「城职课表」
 5. 三个空页面 + 底部导航：今日 / 课表 / 我的（路由名见 DESIGN 3.1）
 6. 首页占位文案说明后续功能
 7. README 写清：如何用 Android Studio 打开、如何安装 JDK/SDK 要求

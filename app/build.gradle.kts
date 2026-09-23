@@ -19,11 +19,11 @@ val releaseStoreFile = keystoreProps.getProperty("storeFile")
     ?.takeIf { it.exists() }
 
 android {
-    namespace = "edu.jxslu.schedule"
+    namespace = "edu.gcp.schedule"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "edu.jxslu.schedule"
+        applicationId = "edu.gcp.schedule"
         minSdk = 26
         targetSdk = 35
         versionCode = 4

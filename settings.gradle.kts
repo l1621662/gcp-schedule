@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "JUWP-Schedule"
+rootProject.name = "GCP-Schedule"
 include(":app")

@@ -4,7 +4,7 @@
 「从教务系统拿到课表/考试/成绩」两条完整数据链路的实现细节，以及换校适配的动手步骤。
 应用功能与界面规格见 [DESIGN.md](DESIGN.md)，爬虫脚本速查见 [scripts/README.md](scripts/README.md)。
 
-> 本项目是**江西水利电力大学的非官方学生项目**，仅供学习交流。
+> 本项目是**广州城市职业学院（正方教务）的非官方学生项目**，仅供学习交流。
 > 换校适配时请同样遵守：模拟正常客户端操作、凭证不入代码仓库、不刷积分、不伪造官方身份。
 
 ---
@@ -63,11 +63,11 @@
 | 模块 | 单模块 `:app` |
 | 语言/UI | Kotlin 2.1.21 + Jetpack Compose + Material3 |
 | 持久化 | Room 2.7.1（课表/成绩）+ DataStore（显示偏好） |
-| 网络 | App 端仅 WebView + 胖乖 Retrofit；课表数据零自建后端 |
+| 网络 | App 端 = WebView（导入）+ OkHttp（调课检测的无界面登录与课表抓取）；零自建后端 |
 | SDK | minSdk 26 / compileSdk 35 |
 | 测试 | 纯 JVM 单测约 30 个类（domain 层可全量测，见 §9） |
 
-分层与依赖方向（`app/src/main/java/edu/jxslu/schedule/`）：
+分层与依赖方向（`app/src/main/java/edu/gcp/schedule/`）：
 
 ```
 MainActivity.kt        底栏三 Tab：今日 / 课表 / 我的

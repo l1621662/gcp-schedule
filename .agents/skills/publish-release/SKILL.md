@@ -1,9 +1,9 @@
 ---
 name: publish-release
-description: Use this skill when the user asks to publish a release, cut a version, ship an update, or asks about release notes / version numbers for JUWP Schedule (水贝贝).
+description: Use this skill when the user asks to publish a release, cut a version, ship an update, or asks about release notes / version numbers for GCP Schedule (城职课表).
 ---
 
-# 发布新版本（JUWP Schedule / 水贝贝）
+# 发布新版本（GCP Schedule / 城职课表）
 
 基于 git log 生成更新日志，构建正式签名 APK，然后用 GitHub CLI 创建 Release。
 
@@ -98,25 +98,25 @@ $aapt = (Get-ChildItem "$env:LOCALAPPDATA\Android\Sdk\build-tools\*\aapt2.exe" |
 **重命名 APK**（带上版本号，避免下载后分不清版本）：
 
 ```powershell
-Copy-Item app\build\outputs\apk\release\app-release.apk "JUWP-Schedule-<版本号>.apk"
+Copy-Item app\build\outputs\apk\release\app-release.apk "GCP-Schedule-<版本号>.apk"
 ```
 
 > **文件名必须用纯 ASCII**（2026-09-18 实测）：GitHub 上传资产时会**静默剥离非 ASCII 字符**，
-> 上传 `水贝贝-0.1.0.apk` 会变成 `-0.1.0.apk`（即便 URL 已正确 percent-encode 也一样）。
-> 用 `JUWP-Schedule-0.1.0.apk`；"水贝贝" 是应用**显示名**，只需出现在 Release 标题和日志里。
+> 上传 `城职课表-0.1.0.apk` 会变成 `-0.1.0.apk`（即便 URL 已正确 percent-encode 也一样）。
+> 用 `GCP-Schedule-0.1.0.apk`；"城职课表" 是应用**显示名**，只需出现在 Release 标题和日志里。
 
 ## Step 6 · 创建 Release
 
 标签与标题都用版本号（不带 `v`），正文用双语日志 + 免责声明：
 
 ```powershell
-gh release create <版本号> "JUWP-Schedule-<版本号>.apk" `
-  --title "<版本号> · 水贝贝" `
+gh release create <版本号> "GCP-Schedule-<版本号>.apk" `
+  --title "<版本号> · 城职课表" `
   --notes "<双语更新日志>
 
 ---
 
-非江西水利电力大学官方应用，学生自用学习项目。登录教务与调用第三方接口存在账号风险，使用后果自负。"
+非广州城市职业学院官方应用，学生自用项目。登录教务读取课表/成绩存在账号与接口变更风险，数据以教务系统为准，使用后果自负。"
 ```
 
 - 只上传 release APK，**不要**把 `app-debug.apk` 传上去。
@@ -130,7 +130,7 @@ gh api repos/Inonvation/JUWP-Schedule/releases/tags/<版本号> `
 
 - **用 `digest` 校验完整性**，不要依赖重新下载（本机代理对大文件会中途断流，
   下到一半的文件大小不符会误判成"上传坏了"）。digest 应等于本地
-  `(Get-FileHash "JUWP-Schedule-<版本号>.apk" -Algorithm SHA256).Hash.ToLower()` 加 `sha256:` 前缀。
+  `(Get-FileHash "GCP-Schedule-<版本号>.apk" -Algorithm SHA256).Hash.ToLower()` 加 `sha256:` 前缀。
 - 上传前先确认 APK 不早于源码：`Get-ChildItem app\src -Recurse -Filter *.kt |
   Where-Object { $_.LastWriteTime -gt (Get-Item app\build\outputs\apk\release\app-release.apk).LastWriteTime }`
   —— 有输出就说明 APK 过期，必须重新 `assembleRelease`。
@@ -138,10 +138,10 @@ gh api repos/Inonvation/JUWP-Schedule/releases/tags/<版本号> `
 ## Step 7 · 发布后
 
 - 打 tag 用 `gh release create` 已自动完成；本地 tag 与远端一致即可。
-- 提醒用户：debug 包与正式包现在是**两个独立应用**（`edu.jxslu.schedule.debug` / `edu.jxslu.schedule`），
+- 提醒用户：debug 包与正式包现在是**两个独立应用**（`edu.gcp.schedule.debug` / `edu.gcp.schedule`），
   可共存但**数据不互通**——测试期用 debug 包的用户想在新装正式包里看到自己的课表，
   需先在 debug 包「我的 → 导出」课表 JSON，装正式包后导入。
-- 若用户装的是**旧 debug 包**（2026-09-18 之前的构建，仍占 `edu.jxslu.schedule`、debug 签名）：
+- 若用户装的是**改名前的旧包**（占 `edu.jxslu.schedule` / `edu.jxslu.schedule.debug`）：
   正式包无法覆盖安装（签名不符），需先导出课表 JSON → 卸载 → 装正式包 → 导入。
 
 ## 硬性禁止

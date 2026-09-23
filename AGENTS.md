@@ -1,12 +1,12 @@
-# JUWP Schedule · Agent 工作规范
+# 城职课表（GCP Schedule）· Agent 工作规范
 
 本文件给 AI Agent / 结对工具读。人看 `README.md` 与 `DESIGN.md`。
 
 ## 项目身份
 
-- 名称：JUWP Schedule / 显示名「水贝贝」
-- 学校：江西水利电力大学（**非官方**；对外文案必须免责声明）
-- 包名：`edu.jxslu.schedule`（debug 变体加 `.debug` 后缀，详见「工程实况」）
+- 名称：GCP Schedule / 显示名「城职课表」
+- 学校：广州城市职业学院（**非官方**；对外文案必须带免责声明，现成文案见 `README.md`）
+- 包名：`edu.gcp.schedule`（debug 变体加 `.debug` 后缀，详见「工程实况」）
 - 形态：单模块 `:app` · Kotlin · Compose + Material3 · minSdk 26 / compileSdk 35
 
 ## 必读顺序
@@ -36,7 +36,7 @@
 | Glance | `androidx.glance:glance-appwidget:1.2.0`（桌面小组件，单条目 `SizeMode.Exact`）；传递抬 compose runtime 至 1.7.8，`androidx.core` 仍 1.15.0 |
 | 图标用法 | `import me.rerere.hugeicons.stroke.*` + `HugeIcons.Calendar01` 等 |
 | 样例课 | **已移除**；课表默认空，从教务 WebView 导入 |
-| 包名 | release = `edu.jxslu.schedule`；debug 加后缀 = `edu.jxslu.schedule.debug`（两者签名不同，**必须**靠后缀区分，否则互相覆盖安装） |
+| 包名 | release = `edu.gcp.schedule`；debug 加后缀 = `edu.gcp.schedule.debug`（两者签名不同，**必须**靠后缀区分，否则互相覆盖安装） |
 
 HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不存在）。不要打开其传递依赖（会拉 `androidx.core` 1.17，AGP 8.7/compileSdk 35 编不过）。
 
@@ -104,15 +104,15 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
 # MIUI 可能弹「USB 安装」需在手机上允许
 ```
 
-debug 与 release 是**两个独立应用**（包名分别 `edu.jxslu.schedule.debug` / `edu.jxslu.schedule`，
-桌面名「水贝贝 Debug」/「水贝贝」），可同时安装、数据各一份。改动冲突时改 `app/src/debug/res/values/strings.xml`（仅覆盖 `app_name`）。
+debug 与 release 是**两个独立应用**（包名分别 `edu.gcp.schedule.debug` / `edu.gcp.schedule`，
+桌面名「城职课表 Debug」/「城职课表」），可同时安装、数据各一份。改动冲突时改 `app/src/debug/res/values/strings.xml`（仅覆盖 `app_name`）。
 
 启动 debug 包**必须写全限定名**——短式 `am start -n <applicationId>/.MainActivity` 会按 applicationId
-补前缀、解析成 `edu.jxslu.schedule.debug.MainActivity` 并报 `Error type 3 ... does not exist`
+补前缀、解析成 `edu.gcp.schedule.debug.MainActivity` 并报 `Error type 3 ... does not exist`
 （manifest 里声明的是源码包名，不含后缀）：
 
 ```powershell
-adb shell am start -n edu.jxslu.schedule.debug/edu.jxslu.schedule.MainActivity
+adb shell am start -n edu.gcp.schedule.debug/edu.gcp.schedule.MainActivity
 ```
 
 **设备列表看不到手机时**：先确认是不是根本没连。重跑 `adb connect` 无效、排除僵尸 adb /
@@ -202,12 +202,13 @@ JuwApplication   ensureDefaults（节次/学期；课表不预置）+ 小组件�
 ## 阶段状态（见 DESIGN.md §6 里程碑）
 
 P1 脚手架 · P2 Room+UI · P3 我的页导入导出/学期 · P4 胖乖（2026-09-23 随学校切换移除）·
-P5 教务 WebView · P5b 实验课表导入 — **已完成**  
+P5 教务 WebView（正方）— **已完成并真机验证** · P5b 实验课表导入 — **已移除**（正方课表含实验课，见 DESIGN §4.8）  
 P6 打磨 — **进行中**
 
 ## 仓库与发版
 
-- 公开仓库：https://github.com/Inonvation/JUWP-Schedule （MIT）
+- 原项目：https://github.com/Inonvation/JUWP-Schedule （MIT）；本仓库是基于它的「广州城市职业学院 · 正方教务」改版
+- ⚠️ `scripts/` 仍是**原项目（江西水利电力大学 · 强智）**的爬虫，尚未适配正方，目前只作换校适配参考
 - **不入库**（已 gitignore，本地保留）：`scripts/out/`（含真实学号/姓名/会话）、
   `scripts/_archive/`、`docs/`、`scripts/gen_week_layout_preview.py`、`release.jks`、`keystore.properties`
 - 发版流程见 `.agents/skills/publish-release/SKILL.md`；图标查名见 `.agents/skills/find-hugeicons/SKILL.md`
