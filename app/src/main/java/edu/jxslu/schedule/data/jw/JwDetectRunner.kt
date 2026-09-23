@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.Constraints
@@ -29,6 +30,8 @@ import edu.jxslu.schedule.domain.DetectReportPayload
 import edu.jxslu.schedule.domain.DetectSnapshotPayload
 import edu.jxslu.schedule.domain.ScheduleDetector
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 
 /**
@@ -43,6 +46,10 @@ import kotlinx.coroutines.flow.first
  * 实验页带同学期参数抓取。
  */
 class JwDetectRunner(private val context: Context) {
+
+    private companion object {
+        const val TAG = "JwDetect"
+    }
 
     enum class Trigger { Scheduled, Manual }
 
@@ -65,7 +72,18 @@ class JwDetectRunner(private val context: Context) {
      *   后台定时检测传 null：走加密存储里的会话 cookie，过期即跳过并提示手动验证一次
      *   ——本校准登录必须填验证码，后台自己登不了（DESIGN §4.17）。
      */
-    suspend fun run(trigger: Trigger, liveSession: ZfJwSession? = null): Outcome {
+    /**
+     * 检测入口（唯一入口）：把整条流程钉在 **IO 线程**上。
+     *
+     * 根因（2026-09-23 真机）：在此之前只有 HTTP 调用自己包了 `withContext(IO)`，
+     * 而流程里的凭据读取、DataStore、Room、通知等仍跟着调用方（主线程）跑；
+     * 真机上报出 `NetworkOnMainThreadException`，并在点击时把界面线程搞崩。
+     * 现在改成「入口即 IO」：主线程只负责把状态回填到 StateFlow。
+     */
+    suspend fun run(trigger: Trigger, liveSession: ZfJwSession? = null): Outcome =
+        withContext(Dispatchers.IO) { runInternal(trigger, liveSession) }
+
+    private suspend fun runInternal(trigger: Trigger, liveSession: ZfJwSession? = null): Outcome {
         val repo = Graph.repository(context)
         val prefs = Graph.displayPrefs(context)
         // 前置门。读取环节自身也可能失败（凭证 keyset 损坏时 EncryptedSharedPreferences 会抛），
@@ -173,6 +191,8 @@ class JwDetectRunner(private val context: Context) {
             // 任何逃逸异常（Room/DataStore IO、序列化、解析器越界等）都会让 busy
             // 永远不复位——界面卡在转圈态，且用户看不到任何解释。
             // 异常在此收口为 Failed，并落 lastError 供状态区回看。
+            // 同时打一条带堆栈的日志：真机出问题时 logcat 一眼能看到是哪一行。
+            Log.w(TAG, "detect failed", e)
             val message = "检测异常：${e.message ?: e.javaClass.simpleName}"
             recordFailureSafely(prefs, message, credentialFailed = false)
             Outcome.Failed(message)

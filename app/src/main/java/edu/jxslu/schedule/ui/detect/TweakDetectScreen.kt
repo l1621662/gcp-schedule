@@ -2,6 +2,7 @@ package edu.jxslu.schedule.ui.detect
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,6 +78,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -481,6 +484,8 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
      * 与当前验证码**同一个会话**的登录现场：csrf 与图片必须成对，换图就换会话。
      * 只活在内存里，登录成功后由 [sessionCookie] 的持久化版本接手后台复用。
      */
+    // volatile：在 IO 线程里赋值、主线程读取（点「重新验证」时要用它）
+    @Volatile
     private var pendingSession: ZfJwSession? = null
 
     val hasSavedAccount: Boolean get() = credentialStore.read() != null
@@ -498,25 +503,32 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
      */
     fun refreshCaptcha() {
         viewModelScope.launch {
-            val previous = pendingSession
-            pendingSession = null
-            previous?.shutdown()
             _captcha.value = CaptchaState.Loading
-            val session = ZfJwSession.create()
-            try {
-                val page = session.prepareLogin()
-                pendingSession = session
-                _captcha.value = CaptchaState.Ready(page.captcha)
+            // 整段（含关闭旧连接池、建 client）都在 IO 线程：真机曾因主线程碰网络崩溃
+            val next = try {
+                withContext(Dispatchers.IO) {
+                    val previous = pendingSession
+                    pendingSession = null
+                    previous?.shutdown()
+                    val session = ZfJwSession.create()
+                    try {
+                        val page = session.prepareLogin()
+                        pendingSession = session
+                        CaptchaState.Ready(page.captcha)
+                    } catch (e: Throwable) {
+                        session.shutdown()
+                        throw e
+                    }
+                }
             } catch (e: CancellationException) {
-                session.shutdown()
                 throw e
             } catch (e: ZfJwSession.ZfException) {
-                session.shutdown()
-                _captcha.value = CaptchaState.Failed(e.message ?: "验证码加载失败")
+                CaptchaState.Failed(e.message ?: "验证码加载失败")
             } catch (e: Exception) {
-                session.shutdown()
-                _captcha.value = CaptchaState.Failed("验证码加载异常：${e.javaClass.simpleName}")
+                Log.w(TAG, "captcha load failed", e)
+                CaptchaState.Failed("验证码加载异常：" + e.javaClass.simpleName)
             }
+            _captcha.value = next
         }
     }
 
@@ -556,7 +568,8 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
             // 整链总超时兜底：单请求各有 connect/read 超时，但链路含多步重定向，
             // 最坏情况叠加起来仍可能长时间无结果。宁可明确报「超时」也不要一直转圈。
             val result = withTimeoutOrNull(LOGIN_TOTAL_TIMEOUT_MS) {
-                verifyAndEnable(user, pwd, captchaCode, session)
+                // 登录 + 落库 + 首检整条链都在 IO：主线程只拿结果
+                withContext(Dispatchers.IO) { verifyAndEnable(user, pwd, captchaCode, session) }
             }
             if (result == null) {
                 refreshCaptcha()
@@ -600,6 +613,7 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
             return NoticeFeedback(e.message ?: "登录失败", NoticeTone.Error)
         } catch (e: Exception) {
             // 兜底：链路里任何未归类异常都不能把开关卡在转圈态
+            Log.w(TAG, "verify failed", e)
             refreshCaptcha()
             return NoticeFeedback(
                 "登录异常：${e.javaClass.simpleName} ${e.message.orEmpty()}".trim(),
@@ -661,6 +675,9 @@ class TweakDetectViewModel(private val appContext: Context) : ViewModel() {
          * 超过这个时间明确报错，好过无限转圈让用户不知道发生了什么。
          */
         private const val LOGIN_TOTAL_TIMEOUT_MS = 60_000L
+
+        /** 真机排错用：异常都带堆栈落到 logcat（TAG=uid 过滤 "TweakDetect"）。 */
+        private const val TAG = "TweakDetect"
 
         fun Factory(context: Context) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

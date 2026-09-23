@@ -107,7 +107,7 @@ class ZfJwSession private constructor(
         passwordEncrypted = extractHiddenValue(html, "mmsfjm") == "1"
         val needCaptcha = captchaRequired(html)
         val captcha = if (needCaptcha) {
-            getBytes("$BASE/jwglxt/kaptcha?time=System.currentTimeMillis()", referer = LOGIN_URL)
+            getBytes("$BASE/jwglxt/kaptcha?time=" + System.currentTimeMillis(), referer = LOGIN_URL)
         } else {
             null
         }
@@ -241,7 +241,7 @@ class ZfJwSession private constructor(
     }
 
     private fun rsaEncryptPassword(password: String): String {
-        val keyJson = getText("$BASE/jwglxt/xtgl/login_getPublicKey.html?time=System.currentTimeMillis()")
+        val keyJson = getText("$BASE/jwglxt/xtgl/login_getPublicKey.html?time=" + System.currentTimeMillis())
         val root = try {
             json.parseToJsonElement(keyJson) as? JsonObject
         } catch (e: Exception) {
