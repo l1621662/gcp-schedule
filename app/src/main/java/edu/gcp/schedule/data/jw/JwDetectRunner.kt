@@ -29,6 +29,7 @@ import edu.gcp.schedule.domain.DetectGroupDto
 import edu.gcp.schedule.domain.DetectReportPayload
 import edu.gcp.schedule.domain.DetectSnapshotPayload
 import edu.gcp.schedule.domain.ScheduleDetector
+import edu.gcp.schedule.domain.TermFormat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -139,8 +140,8 @@ class JwDetectRunner(private val context: Context) {
 
                 val ttId = repo.currentTimetableId.first()
                 val baseline = repo.detectBaseline(ttId)
-                if (baseline != null && !baseline.term.isNullOrBlank() &&
-                    jwTerm != null && jwTerm != baseline.term
+                if (baseline != null && !baseline.term.isNullOrBlank() && jwTerm != null &&
+                    !TermFormat.sameTerm(jwTerm, baseline.term)
                 ) {
                     // 检测本身完成了（时间推进），差异不报：跨学期没有可比性
                     prefs.recordDetectNotice(System.currentTimeMillis(), "教务已切换到 $jwTerm，请重新导入课表或重新开启检测以重建基线")

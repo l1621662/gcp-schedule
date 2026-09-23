@@ -2,6 +2,7 @@ package edu.gcp.schedule.data.jw
 
 import edu.gcp.schedule.domain.Course
 import edu.gcp.schedule.domain.ScheduleCalculator
+import edu.gcp.schedule.domain.TermFormat
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -96,7 +97,10 @@ object ZhengfangScheduleParser {
                         "解析到 ${items.size} 条，但周次/星期字段不完整（失败 $failed 条）",
                     )
                 } else {
-                    ImportParseResult.Success(courses, term = extractTermField(json))
+                    // 学期统一走 TermFormat：页面标题是「2026-2027学年第一学期」这种原文，
+                // 而调课检测那边给的是「2026-2027-1」——不归一化就会每次都判「教务已切换学期」
+                val rawTerm = extractTermField(json)
+                ImportParseResult.Success(courses, term = TermFormat.normalize(rawTerm) ?: rawTerm)
                 }
             }
         } catch (e: Exception) {

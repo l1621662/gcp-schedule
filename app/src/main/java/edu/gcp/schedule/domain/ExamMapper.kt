@@ -112,7 +112,8 @@ private const val ESTIMATED_MAX_WEEKS = 30
  */
 fun estimatedTermStart(term: String?): LocalDate? {
     if (term == null) return null
-    val m = termRe.matchEntire(term.trim()) ?: return null
+    // 页面标题可能是「2026-2027学年第一学期」，先归一化再解析（TermFormat 是唯一口径）
+    val m = termRe.matchEntire(TermFormat.normalize(term) ?: term.trim()) ?: return null
     val y1 = m.groupValues[1].toInt()
     val anchor = if (m.groupValues[3] == "1") {
         LocalDate.of(y1, 9, 1)

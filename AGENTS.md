@@ -72,6 +72,9 @@ HugeIcons **不要**写 `me.rerere:hugeicons-compose:1.0.0`（Maven Central 不�
 行为约定（改之前先读）：
 - 正方课表页的星期/节次直接来自单元格 `td.td_wrap[id="<星期>-<节次>"]`，不要改回「按列序推」那套（旧强智算法已随解析器删除）。
 - 课程配色不按课程名哈希取（12 桶内必然撞色），走 `ScheduleCalculator.colorIndexesBySortedName` / `nextColorIndex`。
+- **学期字符串统一走 `domain/TermFormat.normalize`**：网页导入取到的是页面标题原文
+  （`2026-2027学年第一学期`）、调课检测给的是规范形式（`2026-2027-1`）；两者比较前必须归一，
+  否则会误报「教务已切换学期」把差异检测整条堵死（2026-09-23 真机 bug）。
 - 作息表结构版本存在 DataStore（`DisplayPrefsStore.slotSchemaVersion`）；改作息要同时调 `DefaultData.SLOT_SCHEMA_VERSION` 并给迁移。
 - 课程时间**只有一条口径**：`ScheduleCalculator.courseStartMinutes` / `courseEndMinutes`（自定义时间课以 custom 字段为准）。
   排序、行内时刻、倒计时、进度条、`coursePhase`/`nextCourse`/`dayLastEndMinutes` 全部走它，不要再自己写 `isCustomTime` 分支。
