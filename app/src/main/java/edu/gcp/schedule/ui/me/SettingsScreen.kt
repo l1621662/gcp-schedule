@@ -60,7 +60,7 @@ import me.rerere.hugeicons.stroke.Radar01
 import me.rerere.hugeicons.stroke.Vibrate
 
 /** 公开仓库地址（MIT）；「开源仓库」点击后经系统浏览器打开。 */
-private const val REPO_URL = "https://github.com/Inonvation/JUWP-Schedule"
+private const val REPO_URL = "https://github.com/l1621662/gcp-schedule"
 
 /**
  * 用系统意图打开链接。返回 null = 已拉起；非 null = 用户可读错误，由调用方展示
@@ -269,9 +269,16 @@ fun SettingsScreen(
                 )
                 SettingItem(
                     title = "开源仓库",
-                    subtitle = "原项目 Inonvation/JUWP-Schedule（MIT）",
+                    subtitle = "github.com/l1621662/gcp-schedule",
                     icon = HugeIcons.Github,
                     onClick = { openUrl(context, REPO_URL)?.let(showNotice) },
+                )
+                // 拿别人的开源项目改的，来源与许可在设置页里也留一份（与 README / LICENSE 同步）
+                SettingItem(
+                    title = "项目来源",
+                    subtitle = "基于 Inonvation/JUWP-Schedule（MIT）修改",
+                    icon = HugeIcons.Github,
+                    showArrow = false,
                 )
             }
         }

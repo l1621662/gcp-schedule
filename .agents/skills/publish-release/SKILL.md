@@ -124,7 +124,7 @@ gh release create <版本号> "GCP-Schedule-<版本号>.apk" `
 
 ```powershell
 # 资产名、大小、digest 三项都要核对
-gh api repos/Inonvation/JUWP-Schedule/releases/tags/<版本号> `
+gh api repos/l1621662/gcp-schedule/releases/tags/<版本号> `
   --jq '.assets[] | "\(.name) | \(.size) | \(.digest)"'
 ```
 

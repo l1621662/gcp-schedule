@@ -83,6 +83,29 @@ DEVELOPER.md                # 架构与实现说明
 - 拾光课程表：https://github.com/XingHeYuZhuan/shiguangschedule
 - HugeIcons Compose：`com.github.rikkahub:hugeicons-compose`（JitPack）
 
+## 来源与致谢
+
+本项目**不是从零写的**，而是下面这个开源项目的改版：
+
+- **本仓库**：https://github.com/l1621662/gcp-schedule
+- **原项目**：[Inonvation/JUWP-Schedule](https://github.com/Inonvation/JUWP-Schedule)（MIT）——
+  面向江西水利电力大学的课表 App；界面骨架、课表/成绩领域模型、小组件、调课检测框架等都来自它
+
+**本改版主要改了什么**
+
+1. 适用学校与教务系统：从「江西水利电力大学 · 强智教务」换成「广州城市职业学院 · 正方教务」，
+   重写教务导入链路（WebView 注入 JS 解析课表/成绩）与调课检测链路（无界面登录 + 验证码 + 会话复用）
+2. 删除原学校专属的第三方模块：胖乖生活（开水/余额/订单）、水宝宝一卡通（付款码/充值/流水）、
+   快趣共享单车出码，以及只服务于强智系统的实验课表与解析器
+3. 作息表按本校实际作息调整（第 7–11 节）
+4. 应用名「城职课表」、包名 `edu.gcp.schedule`、新图标，以及配套文档与免责声明改写
+
+**版权与许可**：原项目的版权归原作者所有；本改版同样以 MIT 许可发布，
+原版权声明保留在 [LICENSE](LICENSE) 中，请勿移除。若你是原项目作者并希望调整署名方式，欢迎提 Issue 联系。
+
+**致谢**：感谢 Inonvation 开源 JUWP-Schedule；也感谢 [拾光课程表](https://github.com/XingHeYuZhuan/shiguangschedule)
+在课表模型与 UI 思路上的参考价值。
+
 ## 免责声明
 
 「城职课表」是学生个人开发的第三方工具，**非学校官方应用**，与广州城市职业学院及其教务处、信息中心等

@@ -191,7 +191,8 @@ P6 打磨 — **进行中**
 
 ## 仓库与发版
 
-- 原项目：https://github.com/Inonvation/JUWP-Schedule （MIT）；本仓库是基于它的「广州城市职业学院 · 正方教务」改版
+- 本仓库：https://github.com/l1621662/gcp-schedule
+- 原项目：https://github.com/Inonvation/JUWP-Schedule （MIT）——本仓库是其改版，**保留原作者版权声明**（LICENSE 已含双方）
 - **不入库**（已 gitignore，本地保留）：`docs/`、`release.jks`、`keystore.properties`
 - 发版流程见 `.agents/skills/publish-release/SKILL.md`；图标查名见 `.agents/skills/find-hugeicons/SKILL.md`
 - 对外发版必须用正式 keystore 签名；`release.jks` 缺失时构建回退 debug 签名（**仅本地调试**，不可对外分发）
