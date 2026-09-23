@@ -159,40 +159,51 @@ class ZfJwSession private constructor(
      * 学期（多数部署空值即当前学期）。空课表不算错误——可能只是这学期没课。
      */
     suspend fun fetchSchedule(): ZfSchedule = withContext(Dispatchers.IO) {
-        val indexHtml = runCatching { getText(SCHEDULE_LIST) }.getOrDefault("")
+        // 课表页带 gnmkdm（菜单号）：不带时正方会把它当非法入口，页面里的学期下拉就读不到
+        val indexHtml = runCatching { getText(SCHEDULE_LIST_GNNKDM) }.getOrDefault("")
         val selection = parseTermSelection(indexHtml)
-        val form = FormBody.Builder()
-            .add("xnm", selection?.first.orEmpty())
-            .add("xqm", selection?.second.orEmpty())
-            .add("kzlx", "ck")
-            .add("kbs", "1")
-            .add("xsdm", "")
-            .build()
+        // 学期候选：页面选中的优先；读不到就按当前日期推（学年起始年 + 第一/第二学期），
+        // 再退上一学期。2026-09-23 真机：参数空着时接口返回字面量 null（不是 901），
+        // 说明会话是通的，纯粹是学期没对上。
+        val candidates = termCandidates(selection)
 
-        // 正方不同版本/学校的数据端点名不一样：按候选依次试，并保留最后一个真实错误。
-        // 真机上才能一眼看出到底是「未登录(901)」「参数被拒(HTML 错误页)」还是「字段改名」。
         var lastError: ZfException? = null
         for (endpoint in SCHEDULE_DATA_ENDPOINTS) {
-            try {
-                val body = postText(endpoint, form)
-                val root = try {
-                    json.parseToJsonElement(body) as? JsonObject
-                } catch (e: Exception) {
-                    null
+            for ((xnm, xqm) in candidates) {
+                try {
+                    val body = postText(
+                        endpoint,
+                        FormBody.Builder()
+                            .add("xnm", xnm)
+                            .add("xqm", xqm)
+                            .add("kzlx", "ck")
+                            .add("kbs", "1")
+                            .add("xsdm", "")
+                            .build(),
+                    )
+                    val root = try {
+                        json.parseToJsonElement(body) as? JsonObject
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (root == null) {
+                        lastError = ZfException.Protocol("课表接口返回的不是 JSON：" + snippet(body))
+                        continue
+                    }
+                    val rows = root["kbList"]?.jsonArray ?: root["items"]?.jsonArray
+                    if (rows == null) {
+                        lastError = ZfException.Protocol("课表接口里没有 kbList：" + snippet(body))
+                        continue
+                    }
+                    val courses = rows.mapNotNull { el -> rowToCourse(el as? JsonObject ?: return@mapNotNull null) }
+                    if (courses.isEmpty()) {
+                        lastError = ZfException.Protocol("学期 $xnm-$xqm 返回 0 条课程（若这学期确实没课可忽略）")
+                        continue
+                    }
+                    return@withContext ZfSchedule(buildTerm(xnm, xqm), courses)
+                } catch (e: ZfException) {
+                    lastError = e
                 }
-                if (root == null) {
-                    lastError = ZfException.Protocol("课表接口返回的不是 JSON：" + snippet(body))
-                    continue
-                }
-                val rows = root["kbList"]?.jsonArray ?: root["items"]?.jsonArray
-                if (rows == null) {
-                    lastError = ZfException.Protocol("课表接口里没有 kbList：" + snippet(body))
-                    continue
-                }
-                val courses = rows.mapNotNull { el -> rowToCourse(el as? JsonObject ?: return@mapNotNull null) }
-                return@withContext ZfSchedule(selection?.third ?: extractTermFromJson(root), courses)
-            } catch (e: ZfException) {
-                lastError = e
             }
         }
         throw lastError ?: ZfException.Protocol("课表接口全部尝试失败")
@@ -220,7 +231,7 @@ class ZfJwSession private constructor(
 
     private fun rowToCourse(row: JsonObject): Course? {
         val name = row.str("kcmc") ?: return null
-        val day = row.str("xqj")?.toIntOrNull() ?: return null
+        val day = parseWeekday(row.str("xqj")) ?: return null
         if (day !in 1..7) return null
         val sections = parseSections(row.str("jcs")) ?: return null
         val weeks = ZhengfangScheduleParser.parseWeeks(row.str("zcd").orEmpty())
@@ -238,9 +249,27 @@ class ZfJwSession private constructor(
         )
     }
 
-    /** 正方 `jcs` 形如 `"1-2"` / `"3"` / `"1-2节"`；非法返回 null。 */
+    /** `xqj`：多数是 `"1"`–`"7"`，也有部署给 `"星期一"`；认不出来返回 null。 */
+    private fun parseWeekday(raw: String?): Int? {
+        val text = raw?.trim().orEmpty()
+        text.toIntOrNull()?.let { return it.takeIf { d -> d in 1..7 } }
+        val digit = Regex("([1-7])").find(text)?.groupValues?.get(1)?.toIntOrNull()
+        if (digit != null) return digit
+        return when {
+            "一" in text -> 1
+            "二" in text -> 2
+            "三" in text -> 3
+            "四" in text -> 4
+            "五" in text -> 5
+            "六" in text -> 6
+            "日" in text || "天" in text -> 7
+            else -> null
+        }
+    }
+
+    /** 正方 `jcs` 形如 `"1-2"` / `"3"` / `"第1-2节"`；非法返回 null。 */
     private fun parseSections(raw: String?): Pair<Int, Int>? {
-        val text = raw?.replace("节", "")?.trim().orEmpty()
+        val text = raw?.replace("节", "")?.replace("第", "")?.trim().orEmpty()
         if (text.isEmpty()) return null
         val parts = text.split('-')
         val first = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: return null
@@ -375,7 +404,33 @@ class ZfJwSession private constructor(
         private const val BASE = JwUrls.BASE_URL
         private const val LOGIN_URL = JwUrls.ENTRY
         private const val SCHEDULE_LIST = JwUrls.SCHEDULE_LIST
+
+        /** 带菜单号的课表查询页（HTTP 抓取用；WebView 导入那条链路仍用不带参数的 URL）。 */
+        private const val SCHEDULE_LIST_GNNKDM =
+            JwUrls.SCHEDULE_LIST + "?gnmkdm=N2151&layout=default"
         private const val SCHEDULE_DATA_API = JwUrls.SCHEDULE_DATA_API
+
+        /**
+         * 学期候选（去重保序）：页面选中的 → 按今天推的当前学期 → 上一学期。
+         *
+         * xqm 口径：3 = 第一学期、12 = 第二学期、16 = 第三学期。学年起始年 8 月切换：
+         * 9 月开学就是 (今年, 3)，到次年 2–7 月是 (去年, 12)。
+         */
+        internal fun termCandidates(
+            selected: Triple<String, String, String?>?,
+            today: java.time.LocalDate = java.time.LocalDate.now(),
+        ): List<Pair<String, String>> {
+            val startYear = if (today.monthValue >= 8) today.year else today.year - 1
+            val current = if (today.monthValue >= 8 || today.monthValue == 1) 3 else 12
+            val previous = if (current == 3) 12 else 3
+            val previousStart = if (current == 3) startYear - 1 else startYear
+            val ordered = buildList {
+                selected?.let { add(it.first to it.second) }
+                add(startYear.toString() to current.toString())
+                add(previousStart.toString() to previous.toString())
+            }
+            return ordered.distinct()
+        }
 
         /** 课表数据端点候选：新版 / 旧版命名各试一次。 */
         private val SCHEDULE_DATA_ENDPOINTS = listOf(

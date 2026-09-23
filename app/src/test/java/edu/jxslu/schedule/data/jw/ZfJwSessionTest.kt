@@ -134,6 +134,35 @@ class ZfJwSessionTest {
         assertFalse("空串不算有会话", restoredJar.import(url.host, ""))
     }
 
+    /**
+     * 学期候选：2026-09-23 真机教训——学期传空值时接口回字面量 null（不是 901），
+     * 所以必须能自己推出「今年 + 第一学期」，页面读不到也不能空着发请求。
+     */
+    @Test
+    fun termCandidates_fallsBackToTodayWhenPageNotParsed() {
+        val sept = java.time.LocalDate.of(2026, 9, 23)
+        assertEquals(
+            listOf("2026" to "3", "2025" to "12"),
+            ZfJwSession.termCandidates(null, sept),
+        )
+        val march = java.time.LocalDate.of(2027, 3, 1)
+        assertEquals(
+            listOf("2026" to "12", "2026" to "3"),
+            ZfJwSession.termCandidates(null, march),
+        )
+    }
+
+    @Test
+    fun termCandidates_pageSelectionWinsAndDedupes() {
+        val sept = java.time.LocalDate.of(2026, 9, 23)
+        val candidates = ZfJwSession.termCandidates(Triple("2026", "3", "2026-2027-1"), sept)
+        assertEquals(listOf("2026" to "3", "2025" to "12"), candidates)
+
+        // 页面选中的恰好就是按今天推出来的 → 不能重复发两次同样的请求
+        val deduped = ZfJwSession.termCandidates(Triple("2025", "12", "2025-2026-2"), sept)
+        assertEquals(listOf("2025" to "12", "2026" to "3"), deduped)
+    }
+
     /** IPv4 优先：有 A 记录时 v4 排最前，且不丢弃 AAAA（校园 v6 在移动网是黑洞）。 */
     @Test
     fun ipv4First_prefersV4AndKeepsV6() {
