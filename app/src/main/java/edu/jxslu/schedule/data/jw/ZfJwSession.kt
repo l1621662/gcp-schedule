@@ -161,25 +161,41 @@ class ZfJwSession private constructor(
     suspend fun fetchSchedule(): ZfSchedule = withContext(Dispatchers.IO) {
         val indexHtml = runCatching { getText(SCHEDULE_LIST) }.getOrDefault("")
         val selection = parseTermSelection(indexHtml)
-        val body = postText(
-            SCHEDULE_DATA_API,
-            FormBody.Builder()
-                .add("xnm", selection?.first.orEmpty())
-                .add("xqm", selection?.second.orEmpty())
-                .add("kzlx", "ck")
-                .add("kbs", "1")
-                .add("xsdm", "")
-                .build(),
-        )
-        val root = try {
-            json.parseToJsonElement(body) as? JsonObject
-        } catch (e: Exception) {
-            null
-        } ?: throw ZfException.Protocol("课表接口返回的不是有效 JSON（可能未登录或接口变了）")
-        val rows = root["kbList"]?.jsonArray ?: root["items"]?.jsonArray
-            ?: throw ZfException.Protocol("课表接口里没有 kbList 字段（正方版本可能不同）")
-        val courses = rows.mapNotNull { el -> rowToCourse(el as? JsonObject ?: return@mapNotNull null) }
-        ZfSchedule(selection?.third ?: extractTermFromJson(root), courses)
+        val form = FormBody.Builder()
+            .add("xnm", selection?.first.orEmpty())
+            .add("xqm", selection?.second.orEmpty())
+            .add("kzlx", "ck")
+            .add("kbs", "1")
+            .add("xsdm", "")
+            .build()
+
+        // 正方不同版本/学校的数据端点名不一样：按候选依次试，并保留最后一个真实错误。
+        // 真机上才能一眼看出到底是「未登录(901)」「参数被拒(HTML 错误页)」还是「字段改名」。
+        var lastError: ZfException? = null
+        for (endpoint in SCHEDULE_DATA_ENDPOINTS) {
+            try {
+                val body = postText(endpoint, form)
+                val root = try {
+                    json.parseToJsonElement(body) as? JsonObject
+                } catch (e: Exception) {
+                    null
+                }
+                if (root == null) {
+                    lastError = ZfException.Protocol("课表接口返回的不是 JSON：" + snippet(body))
+                    continue
+                }
+                val rows = root["kbList"]?.jsonArray ?: root["items"]?.jsonArray
+                if (rows == null) {
+                    lastError = ZfException.Protocol("课表接口里没有 kbList：" + snippet(body))
+                    continue
+                }
+                val courses = rows.mapNotNull { el -> rowToCourse(el as? JsonObject ?: return@mapNotNull null) }
+                return@withContext ZfSchedule(selection?.third ?: extractTermFromJson(root), courses)
+            } catch (e: ZfException) {
+                lastError = e
+            }
+        }
+        throw lastError ?: ZfException.Protocol("课表接口全部尝试失败")
     }
 
     fun shutdown() {
@@ -266,8 +282,11 @@ class ZfJwSession private constructor(
             throw ZfException.Network(e)
         }
         response.use { resp ->
-            if (!resp.isSuccessful) throw ZfException.Protocol("HTTP @CODE@：$url".replace("@CODE@", resp.code.toString()))
-            return resp.body?.string().orEmpty()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw ZfException.Protocol("HTTP " + resp.code + "：" + url + " " + snippet(text))
+            }
+            return text
         }
     }
 
@@ -281,7 +300,7 @@ class ZfJwSession private constructor(
         }
         response.use { resp ->
             if (!resp.isSuccessful) {
-                throw ZfException.Protocol("验证码接口 HTTP @CODE@".replace("@CODE@", resp.code.toString()))
+                throw ZfException.Protocol("验证码接口 HTTP " + resp.code + "：" + snippet(resp.body?.string().orEmpty()))
             }
             return resp.body?.bytes() ?: throw ZfException.Protocol("验证码接口返回空 body")
         }
@@ -302,8 +321,11 @@ class ZfJwSession private constructor(
             throw ZfException.Network(e)
         }
         response.use { resp ->
-            if (!resp.isSuccessful) throw ZfException.Protocol("HTTP @CODE@：$url".replace("@CODE@", resp.code.toString()))
-            return resp.body?.string().orEmpty()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw ZfException.Protocol("HTTP " + resp.code + "：" + url + " " + snippet(text))
+            }
+            return text
         }
     }
 
@@ -354,6 +376,16 @@ class ZfJwSession private constructor(
         private const val LOGIN_URL = JwUrls.ENTRY
         private const val SCHEDULE_LIST = JwUrls.SCHEDULE_LIST
         private const val SCHEDULE_DATA_API = JwUrls.SCHEDULE_DATA_API
+
+        /** 课表数据端点候选：新版 / 旧版命名各试一次。 */
+        private val SCHEDULE_DATA_ENDPOINTS = listOf(
+            SCHEDULE_DATA_API,
+            "$BASE/jwglxt/kbcx/xskbcx_cxXsKb.html",
+        )
+
+        /** 错误信息里带一小段响应正文：真机截图就能看出是登录页、错误页还是参数被拒。 */
+        internal fun snippet(body: String, limit: Int = 120): String =
+            body.replace(Regex("\\s+"), " ").trim().take(limit)
 
         private const val UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +

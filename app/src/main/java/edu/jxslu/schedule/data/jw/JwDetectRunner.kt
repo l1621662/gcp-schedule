@@ -122,9 +122,14 @@ class JwDetectRunner(private val context: Context) {
                 val schedule = try {
                     session.fetchSchedule()
                 } catch (e: ZfJwSession.ZfException.Protocol) {
-                    // 接口回登录页/结构变化：按会话过期处理，清掉失效 cookie 并提示手动验证
-                    if (ownedSession) Graph.jwCredentialStore(context).clearSession()
-                    return Outcome.Skipped("教务会话已过期，请到本页点「立即检测」重新验证一次")
+                    if (ownedSession) {
+                        // 后台路径：复用 cookie 失败多半是会话过期 → 清掉它，提示手动验证一次
+                        Graph.jwCredentialStore(context).clearSession()
+                        return Outcome.Skipped("教务会话已过期，请到本页点「立即检测」重新验证一次")
+                    }
+                    // 手动路径：刚刚用验证码登录成功，这里失败就是真实错误（接口名/参数/权限），
+                    // 原样报出来——曾经一律套「会话已过期」，把 901、参数被拒全给掩盖了
+                    return failProtocol(prefs, e.message ?: "课表抓取失败")
                 }
                 val jwTerm = schedule.term
                 val theory = schedule.courses
